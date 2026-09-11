@@ -5,7 +5,6 @@ import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 
 import ChatBox from '@/components/ChatBox.vue'
 import JobCards from '@/components/JobCards.vue'
-import Version from '@/components/Menu/Version.vue'
 import About from '@/components/Tabs/About.vue'
 import Ai from '@/components/Tabs/AI.vue'
 import Config from '@/components/Tabs/Config.vue'
@@ -15,7 +14,7 @@ import Statistics from '@/components/Tabs/Statistics.vue'
 import { useConf, appearanceConf } from '@/composables/conf'
 import { useModel } from '@/composables/useModel'
 
-import { useHelper, VITE_VERSION } from './composables/useHelper'
+import { useHelper } from './composables/useHelper'
 
 const model = useModel()
 
@@ -118,24 +117,6 @@ onMounted(() => {
   chatOpen.value = appearanceConf.value.defaultShowChatBox
 })
 
-function tagOpen(url: string) {
-  window.open(url)
-}
-
-const isDot = computed(() => {
-  return (helper.netConf.value?.version ?? '0') > VITE_VERSION
-})
-
-const overlay = useOverlay()
-
-function openStore() {
-  overlay
-    .create(Version, {
-      destroyOnClose: true,
-    })
-    .open()
-}
-
 function onPointerMove(ev: PointerEvent) {
   if (!helpVisible.value) {
     return
@@ -185,11 +166,6 @@ function onPointerMove(ev: PointerEvent) {
         <div class="rounded-xl pt-3 pb-6 px-4 bg-default flex flex-col">
           <div class="flex gap-2 items-center">
             <span class="text-xl">{{ !appearanceConf.hideHeader ? 'Boss-Helper' : 'Helper' }}</span>
-            <UChip :show="isDot">
-              <UButton color="primary" variant="subtle" @click="openStore" size="xs">
-                v{{ VITE_VERSION }} {{ isDot ? ' 有更新' : '' }}
-              </UButton>
-            </UChip>
             <span v-if="todayData.total > 0" style="margin-right: 15px">
               今日投递: {{ todayData.success }}/{{ conf.formData.deliveryLimit.value }}
             </span>
@@ -198,16 +174,6 @@ function onPointerMove(ev: PointerEvent) {
             </span>
           </div>
 
-          <div v-if="helper.netConf.value && helper.netConf.value.notification" class="netAlerts">
-            <template
-              v-for="item in helper.netConf.value.notification.filter(
-                (item) => item.type === 'alert',
-              )"
-              :key="item.key ?? item.data.title"
-            >
-              <Alert :id="`netConf-${item.key}`" v-bind="item.data" />
-            </template>
-          </div>
           <UTabs
             data-help="no-help"
             :items="items"
@@ -235,19 +201,9 @@ function onPointerMove(ev: PointerEvent) {
                     chatOpen = !chatOpen
                   }
                 "
-                data-help="显示对话框, 使用ai功能必备可以方便的查询ai的输出, 并且可以调整招呼语. 不过功能未完善, 对话框使用体验还不行"
+                data-help="显示 AI 匹配过程与输出，便于查看每个岗位的判断依据。"
               >
                 对话
-              </UButton>
-              <UButton
-                v-if="helper.netConf.value?.feedback"
-                class="ml-2"
-                size="xs"
-                color="info"
-                @click.stop="tagOpen(helper.netConf.value.feedback)"
-                data-help="描述清楚, 并先检查有没有相同问题, 尽量不要重复提交问题"
-              >
-                反馈
               </UButton>
               <UCheckbox
                 class="ml-2"

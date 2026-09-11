@@ -7,7 +7,6 @@ import type { ConfigItem } from '@/composables/useHelper/type'
 
 import Address from './Address.vue'
 import Appearance from './Appearance.vue'
-import CustomGreeting from './CustomGreeting.vue'
 import FormRange from './Form/FormRange.vue'
 import SalaryRange from './SalaryRange.vue'
 
@@ -53,7 +52,6 @@ const exp = computed(() => {
 
 <template>
   <Alert v-if="item.type === 'alert'" v-bind="item" />
-  <CustomGreeting v-else-if="item.type === 'customGreeting'" />
   <Address v-else-if="item.type === 'address'" />
   <Appearance v-else-if="item.type === 'appearance'" />
   <FormItem

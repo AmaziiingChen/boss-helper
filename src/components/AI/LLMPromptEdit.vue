@@ -7,15 +7,15 @@ import { h, reactive, ref } from 'vue'
 
 import JobCard from '@/components/JobCard.vue'
 import { formInfoData, defaultFormData, useConf } from '@/composables/conf'
-import { parseFiltering } from '@/composables/useApplying/utils'
 import { useHelper } from '@/composables/useHelper'
 import type { JobData } from '@/composables/useHelper'
 import { useModel } from '@/composables/useModel'
+import { parseJobMatchResult } from '@/services/jobMatching'
 import type { Prompt } from '@/types/formData'
 import { logger } from '@/utils/logger'
 
 const props = defineProps<{
-  data: 'aiGreeting' | 'aiFiltering' | 'aiReply'
+  data: 'aiFiltering'
 }>()
 const toast = useToast()
 const helper = useHelper()
@@ -31,8 +31,6 @@ const modelItems = computed(() =>
     (v) => ({ ...v, avatar: { src: v.data?.avatar ?? '', loading: 'lazy' } }) as SelectMenuItem,
   ),
 )
-
-const score = ref(props.data === 'aiFiltering' ? (conf.formData[props.data].score ?? 10) : 10)
 
 const role = ['system', 'user', 'assistant']
 
@@ -176,6 +174,13 @@ async function testJob() {
     })
     return
   }
+  if (testData.length === 0) {
+    toast.add({
+      title: '请先从当前页面添加至少一个岗位',
+      color: 'warning',
+    })
+    return
+  }
   testJobLoading.value = true
   testJobStop.value = false
   try {
@@ -186,9 +191,9 @@ async function testJob() {
           model: currentModel.value,
           enable: true,
         },
-        props.data === 'aiFiltering' ? 'filtering' : 'greetings',
+        'filtering',
         {
-          json: props.data === 'aiFiltering',
+          json: true,
         },
       )
     ) {
@@ -199,31 +204,37 @@ async function testJob() {
         return
       }
 
+      item.loading = true
       try {
-        const content = await helper.chatModel
-          .chat(
-            props.data === 'aiFiltering' ? 'filtering' : 'greetings',
-            {
-              jobData: item.job,
-              rawData: null,
-              state: {},
-            },
-            {
-              disableMessages: true,
-            },
-          )
-          .then((r) => Promise.all([r.text, r.finalStep.then((x) => x.reasoningText)]))
-        if (props.data === 'aiFiltering' && content[0]) {
-          const { message } = parseFiltering(content[0])
-          content[0] = message ?? content[0]
-        }
+        const result = await helper.chatModel.chat(
+          'filtering',
+          {
+            jobData: item.job,
+            rawData: null,
+            state: {},
+          },
+          {
+            disableMessages: true,
+          },
+        )
+        const [rawContent, reasoningContent] = await Promise.all([
+          result.text,
+          result.finalStep.then((x) => x.reasoningText),
+        ])
+        const content = JSON.stringify(parseJobMatchResult(rawContent), null, 2)
         testDataContent[item.key]?.push({
           time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-          reasoning_content: content[1],
-          content: content[0],
+          reasoning_content: reasoningContent,
+          content,
         })
+        testExpanded.value = { ...testExpanded.value, [item.key]: true }
       } catch (err) {
         const errMsg = errorHandle(err)
+        testDataContent[item.key]?.push({
+          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          content: `错误：${errMsg}`,
+        })
+        testExpanded.value = { ...testExpanded.value, [item.key]: true }
         logger.error('TestJobError', err)
         toast.add({
           title: errMsg,
@@ -261,9 +272,6 @@ async function savePrompt() {
   conf.formData[props.data].model = currentModel.value
   conf.formData[props.data].prompt = message.value
 
-  if (props.data === 'aiFiltering') {
-    conf.formData[props.data].score = score.value
-  }
   await conf.confSaving()
   show.value = false
 }
@@ -280,14 +288,8 @@ const testModelRef = useTemplateRef('testModel')
     :dismissible="false"
   >
     <template #body>
-      <div v-if="data === 'aiFiltering'">
-        <UFormField label="过滤分数">
-          <UInputNumber v-model="score" :min="-100" :max="100" size="sm" placeholder="请输入分数" />
-        </UFormField>
-      </div>
       <div class="w-full flex items-center justify-between" ref="promptModel">
         <div class="flex gap-2">
-          <UButton color="neutral"> 多对话模式 </UButton>
           <UButton color="primary" @click="addMessage"> 添加消息 </UButton>
         </div>
         <div class="flex gap-2">

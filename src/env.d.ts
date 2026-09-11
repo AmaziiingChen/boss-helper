@@ -1,11 +1,4 @@
 interface Window {
-  ChatWebsocket?: {
-    send: (e: { toArrayBuffer: () => ArrayBuffer }) => void
-  }
-  EventBus?: {
-    publish: (e: string, ...data: any[]) => void
-    subscribe: (e: string, t: (...data: any[]) => void) => void
-  }
   _PAGE: {
     isGeekChat: boolean
     // zp_token: string; 7.18 寄！

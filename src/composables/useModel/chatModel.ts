@@ -19,7 +19,7 @@ import type { ModelConf } from '.'
 import type { WorkflowData } from '../useApplying/type'
 import type { HelperContext } from '../useHelper'
 
-const role = ['system', 'user', 'assistant', 'boss', 'jd', 'filtering', 'greetings'] as const
+const role = ['jd', 'filtering'] as const
 type MessageRole = (typeof role)[number]
 
 export interface Message extends ChatMessageProps {
@@ -123,7 +123,10 @@ export class ChatModel {
 
     const agent = new ToolLoopAgent({
       model: provider.chat(conf.data?.model || 'gpt-4o'),
-      output: opt?.json ? Output.json() : Output.text(),
+      // Some OpenAI-compatible providers do not reliably implement JSON response
+      // formats. Receive text here and validate the filtering result locally.
+      output: Output.text(),
+      temperature: opt?.json ? 0 : undefined,
       allowSystemInMessages: true,
     })
     this.agents.set(name, [agent, conf, model])

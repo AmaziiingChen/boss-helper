@@ -1,7 +1,6 @@
 import type { AccordionItem, FormFieldProps, InputNumberProps } from '@nuxt/ui'
 
 import type { ExtendedAlertProps } from '@/components/Alert.vue'
-import type { BossZpBossData } from '@/entrypoints/boss/types'
 import type { amapDistance, amapGeocode } from '@/utils/amap'
 
 export type JobBaseData = {
@@ -99,7 +98,6 @@ export interface LogData {
     geocode?: Awaited<ReturnType<typeof amapGeocode>>
     distance?: Awaited<ReturnType<typeof amapDistance>>
   }
-  bossData?: BossZpBossData
   message?: string
   state?: string
   err?: string
@@ -107,9 +105,6 @@ export interface LogData {
   aiFilteringR?: string | null
   aiFilteringAjson?: object
   aiFilteringAtext?: string
-  aiGreetingQ?: string
-  aiGreetingR?: string | null
-  aiGreetingA?: string
 }
 
 type logState = 'info' | 'success' | 'warning' | 'danger'
@@ -136,7 +131,6 @@ export type ConfigItem =
         | (
             | 'salaryRange'
             | 'companySizeRange'
-            | 'customGreeting'
             | 'address'
             | 'appearance'
             | 'checkbox-expire'

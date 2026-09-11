@@ -46,15 +46,6 @@ export const formInfoData: Record<string, any> = {
     label: '工作地址',
     'data-help': '只能为包含模式, 即投递工作地址当中必须包含当前内容中的任意一项，否则排除',
   },
-  customGreeting: {
-    label: '自定义招呼语',
-    'data-help':
-      '因为boss不支持将自定义的招呼语设置为默认招呼语。开启表示发送boss默认的招呼语后还会发送自定义招呼语',
-  },
-  greetingVariable: {
-    label: '招呼语变量',
-    'data-help': '使用mitem模板引擎来对招呼语进行渲染;',
-  },
   activityFilter: {
     label: '活跃度过滤',
     'data-help': '打开后会自动过滤掉最近未活跃的Boss发布的工作。以免浪费每天的100次机会。',
@@ -80,22 +71,9 @@ export const formInfoData: Record<string, any> = {
     label: '相同Hr过滤',
     'data-help': '投递过的hr存储到浏览器本地，避免多次向同hr投递。',
   },
-  aiGreeting: {
-    label: 'AI招呼语',
-    'data-help':
-      '即使前面招呼语开了也不会发送，只会发送AI生成的招呼语，让gpt来打招呼真是太棒了，毕竟开场白很重要。',
-  },
   aiFiltering: {
-    label: 'AI过滤',
-    'data-help': '根据工作内容让gpt分析过滤，真是太稳健了，不放过任何一个垃圾',
-  },
-  aiReply: {
-    label: 'AI回复',
-    'data-help': '万一消息太多，回不过来了呢. 功能暂未实现',
-  },
-  record: {
-    label: '内容记录',
-    'data-help': '拿这些数据去训练个Ai岂不是美滋滋咯？',
+    label: 'AI简历匹配',
+    'data-help': '将本地保存的 Markdown 简历和完整岗位信息交给 AI，返回 REJECT、REVIEW 或 APPLY。',
   },
   amap: {
     enable: {
@@ -181,15 +159,8 @@ export const defaultFormData: FormData = {
     value: [500, 2000, true],
     enable: false,
   },
-  customGreeting: {
-    value: '',
-    enable: false,
-  },
   deliveryLimit: {
     value: 120,
-  },
-  greetingVariable: {
-    value: false,
   },
   activityFilter: {
     value: true,
@@ -214,72 +185,25 @@ export const defaultFormData: FormData = {
   notification: {
     value: true,
   },
-  useCache: {
-    value: false,
-  },
-  aiGreeting: {
-    enable: false,
-    prompt: [
-      {
-        role: 'system',
-        content: `## 角色
-  求职小能手
-  
-  ## input：
-  1 **求职者信息**
-  \`\`\`
-  1. ....
-  2. ....
-  3. ....
-  \`\`\`
-  
-  ## outputformat
-  招呼语字符串，无书信格式和前缀，和聊天开场白一样的介绍求职者`,
-      },
-      {
-        role: 'user',
-        content: `### 待处理的岗位信息:\`\`\`
-  <岗位信息>
-  岗位名:{{ jobData.jobName }}   薪资: {{ jobData.salary }}
-  学历要求: {{ jobData.degreeName }}
-  技能要求: {{ jobData.skills }}
-  岗位标签:{{ jobData.jobLabels }}
-    <岗位描述>
-    {{ jobData.jobDescription }}
-    <岗位描述/>
-  </岗位信息>
-  \`\`\``,
-      },
-    ],
-  },
   aiFiltering: {
     enable: false,
     prompt: [
       {
         role: 'system',
-        content: `## 角色
-  求职评委
-  
-  最终返回下面格式的JSON字符串,不要有任何其他字符
-  
-  interface aiFilteringItem {
-    reason: string; // 扣分或加分的理由
-    score: number ; // 分数变化 正整数 不需要+-正负符号
-  }
-  
-  interface aiFiltering {
-    negative: aiFilteringItem[]; // 扣分项
-    positive: aiFilteringItem[] ; // 加分项
-  }
-  
-  ## 求职者需求
-  - 加分: 双休,早九晚五,新技术,机会多,年轻人多 每个加分项 10分
-  - 扣分: 需要上门,福利少,需要和客户交流,需要推销 每个扣分项 10分
-  `,
+        content: `比较候选人简历与岗位要求，判断是否值得投递。
+只返回一个JSON对象，不要输出Markdown或JSON之外的文字。必须且只能包含以下字段：
+{"decision":"REJECT|REVIEW|APPLY","reason":"总体判断理由","matchPoints":["有简历依据的匹配点"],"gaps":["缺口、风险或硬性冲突"],"uncertainties":["仅凭现有信息无法确定的事项"]}
+REJECT：明显不匹配、硬性要求不满足或不值得投递。
+REVIEW：有一定匹配度，但存在不确定项或明显缺口。
+APPLY：匹配度高且没有已知硬性冲突。
+reason 应简洁说明作出该决策的核心依据；matchPoints、gaps、uncertainties 必须是字符串数组，没有内容时返回空数组。不得把推测写成候选人的既有事实。`,
       },
       {
         role: 'user',
-        content: `## 待处理的岗位信息:
+        content: `## 候选人简历
+{{ resumeMarkdown }}
+
+## 待处理的岗位信息
   <岗位信息>
   岗位名:{{ jobData.jobName }}   薪资: {{ jobData.salary }}
   学历要求: {{ jobData.degreeName }}    工作经验要求: {{ jobData.experienceName }}
@@ -292,11 +216,23 @@ export const defaultFormData: FormData = {
   </岗位信息>`,
       },
     ],
-    score: 10,
   },
-  aiReply: {
+  resumeMarkdown: {
+    content: '',
+    fileName: '',
+  },
+  autoDelivery: {
+    value: false,
+  },
+  deliverReview: {
+    value: false,
+  },
+  feishu: {
     enable: false,
-    prompt: [{ role: 'user', content: '帮我写一个回复的提示' }],
+    appId: '',
+    appSecret: '',
+    appToken: '',
+    tableId: '',
   },
   amap: {
     key: '',
@@ -308,12 +244,8 @@ export const defaultFormData: FormData = {
     walkingDuration: 0,
     enable: false,
   },
-  record: {
-    enable: false,
-  },
   delayDeliveryStarts: 3,
   delayDeliveryInterval: 5,
   delayDeliveryPageNext: 60,
-  delayMessageSending: 2,
-  version: '20260718',
+  version: '20260911',
 }

@@ -1,28 +1,11 @@
 <script lang="ts" setup>
 import { InputMenuItem } from '@nuxt/ui'
-import { reactive } from 'vue'
 
 import LLMFormItem from '@/components/AI/LLMFormItem.vue'
 import { ModelConfData } from '@/composables/useModel'
 import { openai } from '@/composables/useModel/openai'
-import type { LLMInfo } from '@/composables/useModel/type'
 
 const formData = defineModel<ModelConfData>({ required: true })
-
-const enabledFields = reactive<Record<string, boolean>>({})
-
-const initializeEnabledFields = () => {
-  const info = openai.info as unknown as LLMInfo<ModelConfData>
-  for (const [key, item] of Object.entries(info)) {
-    if (key === 'mode') continue
-    const itemAny = item as any
-    if (!itemAny.required && formData.value[key as keyof ModelConfData] !== undefined) {
-      enabledFields[key] = true
-    }
-  }
-}
-
-initializeEnabledFields()
 
 const llmFormRef = useTemplateRef('LLMFormRef')
 provide('LLMFormRef', llmFormRef)

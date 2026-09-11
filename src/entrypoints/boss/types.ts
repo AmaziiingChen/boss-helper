@@ -1,44 +1,5 @@
 import type { DeepPartial } from '@nuxt/ui'
 
-export interface BossZpBossData {
-  data: {
-    bossFreezeStatus: number
-    companyName: string
-    tinyUrl: string
-    title: string
-    mobileVisible: number
-    encryptJobId: string
-    regionCode: string
-    bothTalked: boolean
-    encryptBossId: string
-    warningTips: any[]
-    bossId: number
-    weixinVisible: number
-    mobile: string
-    securityId: string
-    bossPreFreezeStatus: number
-    weixin: string
-    curTime: number
-    isTop: number
-    name: string
-    hasInterview: boolean
-    bossSource: number
-  }
-  job: {
-    jobName: string
-    salaryDesc: string
-    brandName: string
-    locationName: string
-    proxyJob: number
-    proxyType: number
-    jobSource: number
-    degreeName: string
-    lowSalary: number
-    highSalary: number
-    experienceName: string
-  }
-}
-
 /**
  * 职位信息,在模板中通常使用 data 获取
  * 如 {{ data.jobName }} 获取工作名称

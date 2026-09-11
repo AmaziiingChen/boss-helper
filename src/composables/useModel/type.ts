@@ -1,11 +1,4 @@
-import type {
-  InputProps,
-  InputNumberProps,
-  InputMenuProps,
-  SwitchProps,
-  SliderProps,
-  SelectMenuProps,
-} from '@nuxt/ui'
+import type { InputProps, InputNumberProps } from '@nuxt/ui'
 
 export type LLMConf<M extends string, T> = { mode: M } & T
 
@@ -16,14 +9,6 @@ export type FormElm =
       format: 'number'
       config?: InputNumberProps
     }
-  | {
-      type: 'input'
-      format: 'menu'
-      config?: InputMenuProps
-    }
-  | { type: 'slider'; config?: SliderProps }
-  | { type: 'switch'; config?: SwitchProps }
-  | { type: 'select'; config?: SelectMenuProps }
 
 type IsStructuredObject<T> =
   T extends Record<string, any> ? (string extends keyof T ? false : true) : false
@@ -39,7 +24,6 @@ export type LLMInfoValF<T, F> = {
   value?: F
   label?: string
   desc?: string
-  condition?: string | ((val: T) => boolean)
 } & FormElm &
   (undefined extends F ? { required?: boolean } : { required: true })
 

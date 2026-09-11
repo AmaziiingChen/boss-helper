@@ -1,19 +1,54 @@
 import { TaskRegistry, taskResult } from '@/composables/useApplying/handles'
 import { defineTaskHandler, defineTaskWorkflow } from '@/composables/useApplying/type'
+import { upsertJobToFeishu } from '@/services/feishu'
+import type { FeishuJobSnapshot } from '@/services/feishu'
+import { shouldDeliverJob } from '@/services/jobMatching'
+import type { JobMatchResult } from '@/services/jobMatching'
 
 import type { BossHelperCtx } from '.'
-import { getBossData, sendPublishReq } from './requests'
-import type { BossZpJobItemData, BossZpDetailData, BossZpBossData } from './types'
+import { sendPublishReq } from './requests'
+import type { BossZpJobItemData, BossZpDetailData } from './types'
 
 export type BoosJobData = {
   jobitem: BossZpJobItemData
   detail: BossZpDetailData
-  boss: BossZpBossData
 }
 
-const tasks = new TaskRegistry<BossHelperCtx, BoosJobData>()
+export type BossWorkflowState = {
+  aiMatchResult?: JobMatchResult
+  delivered?: boolean
+  feishuRecordId?: string
+}
 
-export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
+function buildFeishuJobSnapshot(data: BoosJobData): FeishuJobSnapshot {
+  const { jobitem, detail } = data
+  const jobInfo = detail.jobInfo
+  const brand = detail.brandComInfo
+  const recruiter = detail.bossInfo
+
+  return {
+    internshipDuration: [jobitem.daysPerWeekDesc, jobitem.leastMonthDesc]
+      .filter(Boolean)
+      .join(' · '),
+    city: jobInfo.locationName || jobitem.cityName,
+    district: jobitem.areaDistrict || '',
+    businessDistrict: jobitem.businessDistrict || '',
+    address: jobInfo.address || '',
+    skills: jobInfo.showSkills?.length ? jobInfo.showSkills : jobitem.skills || [],
+    labels: jobitem.jobLabels || [],
+    companyScale: brand.scaleName || jobitem.brandScaleName || '',
+    companyIndustry: brand.industryName || jobitem.brandIndustry || '',
+    companyStage: brand.stageName || jobitem.brandStageName || '',
+    recruiter: [recruiter.name || jobitem.bossName, recruiter.title || jobitem.bossTitle]
+      .filter(Boolean)
+      .join(' · '),
+    jobStatus: jobInfo.jobStatusDesc || '',
+  }
+}
+
+const tasks = new TaskRegistry<BossHelperCtx, BoosJobData, BossWorkflowState>()
+
+export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData, BossWorkflowState>(
   defineTaskHandler(
     '已沟通',
     async () => {
@@ -72,33 +107,60 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   tasks.amap({ deps: ['岗位详情获取'] }), // 高德地图
   tasks.aiFiltering({ deps: ['岗位详情获取'] }), // AI过滤
 
-  defineTaskHandler('岗位投递', () => async (_, { rawData }) => {
-    await sendPublishReq({
-      securityId: rawData.jobitem.securityId,
-      encryptJobId: rawData.jobitem.encryptJobId,
-    })
+  defineTaskHandler('岗位投递', (ctx) => async (_, data) => {
+    const matchResult = data.state.aiMatchResult
+    const decision = matchResult?.decision
+    const shouldDeliver = decision
+      ? shouldDeliverJob(
+          decision,
+          ctx.helper.conf.formData.autoDelivery.value,
+          ctx.helper.conf.formData.deliverReview.value,
+        )
+      : false
+
+    data.state.delivered = false
+    if (ctx.helper.conf.formData.feishu.enable) {
+      const result = await upsertJobToFeishu(
+        data.jobData,
+        data.rawData.jobitem.encryptJobId,
+        matchResult,
+        ctx.helper.conf.formData.feishu,
+        buildFeishuJobSnapshot(data.rawData),
+      )
+      data.state.feishuRecordId = result.recordId
+    }
+
+    if (shouldDeliver) {
+      await sendPublishReq({
+        securityId: data.rawData.jobitem.securityId,
+        encryptJobId: data.rawData.jobitem.encryptJobId,
+      })
+      data.state.delivered = true
+      if (ctx.helper.conf.formData.feishu.enable) {
+        await upsertJobToFeishu(
+          data.jobData,
+          data.rawData.jobitem.encryptJobId,
+          matchResult,
+          ctx.helper.conf.formData.feishu,
+          buildFeishuJobSnapshot(data.rawData),
+        )
+      }
+    }
+
+    if (!matchResult) return taskResult.skip('AI简历匹配未开启，未投递')
+    if (matchResult.decision === 'REJECT') {
+      return taskResult.skip(`AI: REJECT；${matchResult.reason}`)
+    }
+    if (!ctx.helper.conf.formData.autoDelivery.value) {
+      return taskResult.skip(`AI: ${matchResult.decision}；${matchResult.reason}；自动投递已关闭`)
+    }
+    if (matchResult.decision === 'REVIEW' && !ctx.helper.conf.formData.deliverReview.value) {
+      return taskResult.skip(`AI: REVIEW；${matchResult.reason}；REVIEW 投递已关闭`)
+    }
     return {
       status: 'success',
-      msg: '投递成功',
+      msg: `AI: ${matchResult.decision}；${matchResult.reason}；投递成功`,
     }
   }), // 投递
 
-  defineTaskHandler('Boss信息获取', () => async (ctx, { rawData }) => {
-    // await sendPublishReq({
-    //   securityId: rawData.jobitem.securityId,
-    //   encryptJobId: rawData.jobitem.encryptJobId,
-    // })
-    ctx.log.info('获取Boss信息', {
-      securityId: rawData.jobitem.securityId,
-      encryptJobId: rawData.jobitem.encryptJobId,
-    })
-    const bossData = await getBossData({
-      securityId: rawData.jobitem.securityId,
-      encryptUserId: ctx.helper.uid,
-    })
-    rawData.boss = bossData
-  }), // Boss信息获取
-
-  tasks.customGreeting({ deps: ['岗位详情获取', '岗位投递', 'Boss信息获取'] }), // 自定义招呼语
-  tasks.aiGreeting({ deps: ['岗位详情获取', '岗位投递', 'Boss信息获取'] }), // AI招呼语
 )

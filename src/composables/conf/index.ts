@@ -21,7 +21,6 @@ export const appearanceConf = useStorageAsync(
     hideHeader: false,
     changeIcon: false,
     dynamicTitle: false,
-    changeBackground: false,
     blurCard: false,
     listSink: false,
     contentOffset: 25, // 0-25, 25则为关闭
@@ -91,22 +90,6 @@ const FROM_VERSION: [string, (from: Partial<FormData>) => Partial<FormData>][] =
           prompt: defaultFormData.aiFiltering.prompt,
         }
       }
-      if (from.aiGreeting?.prompt) {
-        if (typeof from.aiGreeting.prompt === 'string') {
-          from.aiGreeting.prompt = [
-            {
-              role: 'user',
-              content: from.aiGreeting.prompt,
-            },
-          ]
-        }
-      } else {
-        from.aiGreeting = {
-          ...defaultFormData.aiGreeting,
-          ...from.aiGreeting,
-          prompt: defaultFormData.aiGreeting.prompt,
-        }
-      }
       if (from.jobAddress) {
         from.jobAddress = {
           ...from.jobAddress,
@@ -127,6 +110,17 @@ const FROM_VERSION: [string, (from: Partial<FormData>) => Partial<FormData>][] =
         from[`delay${key.charAt(0).toUpperCase() + key.slice(1)}`] = value
       })
       delete from['delay']
+      return from
+    },
+  ],
+  [
+    '20260910',
+    (from) => {
+      from.aiFiltering = {
+        ...defaultFormData.aiFiltering,
+        model: from.aiFiltering?.model,
+        enable: from.aiFiltering?.enable ?? false,
+      }
       return from
     },
   ],
@@ -217,7 +211,7 @@ export const useConf = () => {
 
   async function confExport() {
     const data = deepmerge<FormData>(defaultFormData, await counter.storageGet(formDataKey(), {}))
-    exportJson(data, '打招呼配置')
+    exportJson(data, '岗位筛选配置')
   }
 
   async function confImport() {
@@ -241,7 +235,6 @@ export const useConf = () => {
         'sameHrFilter',
         'goldHunterFilter',
         'notification',
-        'useCache',
         'delay',
       ].reduce(
         (result, key) => {

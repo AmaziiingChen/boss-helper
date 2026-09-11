@@ -24,13 +24,6 @@ export class PublishError extends BossHelperError {
   }
 }
 
-export class GreetError extends BossHelperError {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, 'danger', options)
-    this.name = '打招呼出错'
-  }
-}
-
 export class LimitError extends BossHelperError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, 'danger', options)

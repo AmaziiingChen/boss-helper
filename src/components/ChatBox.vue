@@ -1,11 +1,12 @@
 <script lang="ts" setup>
 import { isPartStreaming, isToolStreaming } from '@nuxt/ui/utils/ai'
-import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart, UIMessage } from 'ai'
+import { getToolName, isReasoningUIPart, isTextUIPart, isToolUIPart } from 'ai'
+import type { UIMessage } from 'ai'
 
 import { appearanceConf } from '@/composables/conf'
-import { parseFiltering } from '@/composables/useApplying/utils'
 import { useHelper } from '@/composables/useHelper'
-import { VueChatState, Message } from '@/composables/useModel'
+import type { Message } from '@/composables/useModel'
+import { parseJobMatchResult } from '@/services/jobMatching'
 
 const open = defineModel('open', { default: false })
 const following = ref(true)
@@ -29,6 +30,20 @@ const messages = computed(() => {
   if (!selectJob.value) return
   return helper.chatModel.states.get(selectJob.value)
 })
+
+function formatFilteringResult(content: string) {
+  try {
+    const result = parseJobMatchResult(content)
+    const lines = [`AI: ${result.decision}`, `理由：${result.reason}`]
+    if (result.matchPoints.length) lines.push(`匹配点：\n• ${result.matchPoints.join('\n• ')}`)
+    if (result.gaps.length) lines.push(`缺口与风险：\n• ${result.gaps.join('\n• ')}`)
+    if (result.uncertainties.length)
+      lines.push(`待核实项：\n• ${result.uncertainties.join('\n• ')}`)
+    return lines.join('\n\n')
+  } catch {
+    return content
+  }
+}
 
 watch(
   () => helper.currentJob.value,
@@ -239,7 +254,7 @@ onUnmounted(() => {
               />
 
               <p v-else-if="isTextUIPart(part)" class="whitespace-pre-wrap">
-                {{ message.uiRole === 'filtering' ? parseFiltering(part.text).message : part.text }}
+                {{ message.uiRole === 'filtering' ? formatFilteringResult(part.text) : part.text }}
               </p>
             </template>
           </template>

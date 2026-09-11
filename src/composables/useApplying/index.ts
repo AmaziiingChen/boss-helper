@@ -1,14 +1,10 @@
 import type { ContextLogger } from 'devlog-ui'
 import { shallowRef, ref } from 'vue'
 
-import { PipelineCacheManager } from '@/composables/usePipelineCache'
-import type { PipelineCacheItem, ProcessorType } from '@/types/pipelineCache'
-
 import type { HelperContext } from '../useHelper'
 import { DependencyMissingError } from './handles'
 import type {
   Handler,
-  JobStatus,
   Task,
   TaskContext,
   TaskPipeline,
@@ -17,47 +13,6 @@ import type {
   WorkflowData,
 } from './type'
 import { jobStatusList } from './type'
-
-// 全局缓存管理器实例
-let cacheManager: PipelineCacheManager | null = null
-
-/**
- * 创建缓存实例
- */
-export function getCacheManager(): PipelineCacheManager {
-  if (!cacheManager) {
-    cacheManager = new PipelineCacheManager()
-  }
-  return cacheManager
-}
-
-/**
- * 缓存Pipeline处理结果
- */
-export async function cachePipelineResult(
-  key: string,
-  jobName: string,
-  brandName: string,
-  status: JobStatus,
-  message: string,
-  processorType?: ProcessorType,
-): Promise<void> {
-  const cacheManager = getCacheManager()
-  await cacheManager.setCacheResult(key, jobName, brandName, status, message, processorType)
-}
-
-/**
- * 检查职位是否有有效缓存
- */
-export function checkJobCache(key: string): PipelineCacheItem | null {
-  const cacheManager = getCacheManager()
-
-  if (cacheManager.isValidCache(key)) {
-    const cached = cacheManager.getCachedResult(key)
-    return cached
-  }
-  return null
-}
 
 export type DeliveryWorkflow<C extends HelperContext<C, T, S>, T, S> = Awaited<
   ReturnType<typeof useDeliveryWorkflow<C, T, S>>

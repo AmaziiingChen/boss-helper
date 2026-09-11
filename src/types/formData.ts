@@ -21,9 +21,7 @@ export interface FormData {
   jobAddress: FormDataSelect
   salaryRange: FormSalaryRangeInput
   companySizeRange: FormDataRangeInput
-  customGreeting: FormDataInput
   deliveryLimit: FormDataInputNumber
-  greetingVariable: FormDataCheckbox
   activityFilter: FormDataCheckbox
   friendStatus: FormDataCheckbox
   bossGoldMedalHr: FormDataCheckbox
@@ -31,10 +29,14 @@ export interface FormData {
   sameHrFilter: FormDataCheckbox & { expire?: number }
   goldHunterFilter: FormDataCheckbox
   notification: FormDataCheckbox
-  useCache: FormDataCheckbox
-  aiGreeting: FormDataAi
-  aiFiltering: FormDataAi & { score: number }
-  aiReply: FormDataAi
+  aiFiltering: FormDataAi
+  resumeMarkdown: {
+    content: string
+    fileName: string
+  }
+  autoDelivery: FormDataCheckbox
+  deliverReview: FormDataCheckbox
+  feishu: FeishuConfig
   amap: {
     key: string
     origins: string
@@ -45,12 +47,10 @@ export interface FormData {
     walkingDuration: number
     enable: boolean
   }
-  record: { model?: string[]; enable: boolean }
   // animation?: "frame" | "card" | "together";
   delayDeliveryStarts: number
   delayDeliveryInterval: number
   delayDeliveryPageNext: number
-  delayMessageSending: number
   version: string
 
   [key: string]: any
@@ -69,7 +69,7 @@ export interface FormDataSelect {
 }
 
 export interface FormDataInput {
-  value: string | Array<CustomGreetingItem>
+  value: string
   enable: boolean
 }
 
@@ -99,6 +99,14 @@ export interface FormDataCheckbox {
   value: boolean
 }
 
+export interface FeishuConfig {
+  enable: boolean
+  appId: string
+  appSecret: string
+  appToken: string
+  tableId: string
+}
+
 export type Prompt = Array<{
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -109,23 +117,3 @@ export interface FormDataAi {
   prompt: Prompt
   enable: boolean
 }
-
-export type CustomGreetingItemText = {
-  type: 'text'
-  content: string
-}
-
-export type CustomGreetingItemImage = {
-  type: 'image'
-  // image: Record<
-  //   string,
-  //   { meta?: any; model?: File } & (
-  //     | { url: string; base64?: undefined }
-  //     | { url?: undefined; base64: string }
-  //   )
-  // >
-  image: string
-  model?: File
-}
-
-export type CustomGreetingItem = CustomGreetingItemText | CustomGreetingItemImage

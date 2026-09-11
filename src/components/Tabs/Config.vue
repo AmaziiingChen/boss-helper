@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import Alert from '@/components/Alert.vue'
 import { formInfoData, useConf } from '@/composables/conf'
-import { getCacheManager } from '@/composables/useApplying'
 import { useHelper } from '@/composables/useHelper'
 
 import ConfigItem from './ConfigItem/ConfigItem.vue'
@@ -60,19 +59,6 @@ const configItems = helper.getConfigItems()
           <span data-help="可以在网站管理中打开通知权限,当停止时会自动发送桌面端通知提醒。">
             <UCheckbox label="发送通知" v-model="conf.formData.notification.value" />
           </span>
-          <span
-            v-if="conf.configLevel.expert || conf.formData.useCache.value"
-            data-help="开启后会缓存投递记录，避免重复投递，提高效率。但是缓存功能并不积极维护。可能会有bug，或者意外情况，如遇到可尝试清空缓存或者禁用"
-          >
-            <UCheckbox label="启用缓存" v-model="conf.formData.useCache.value" />
-          </span>
-          <UButton
-            v-if="conf.formData.useCache.value"
-            color="warning"
-            @click="() => getCacheManager().clearCache()"
-          >
-            清空缓存
-          </UButton>
           <UFormField v-if="conf.configLevel.intermediate" label="投递数量">
             <UInputNumber
               label="投递数量"

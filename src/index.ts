@@ -2,7 +2,6 @@ import ui from '@nuxt/ui/vue-plugin'
 import { createApp } from 'vue'
 
 import App from './App.vue'
-import AppMenu from './AppMenu.vue'
 import type { HelperContext } from './composables/useHelper'
 import { HelperKey } from './composables/useHelper'
 
@@ -44,21 +43,5 @@ export async function run<C extends HelperContext<C, T, S>, T, S>(ctx: HelperCon
     },
   )
 
-  customElements.define(
-    'boss-helper-menu',
-    class extends HTMLElement {
-      connectedCallback() {
-        _connectedCallback(this, AppMenu)
-      }
-      disconnectedCallback() {
-        // 完美卸载的关键：清理 Vue 实例
-        const app = (this as any)._vueApp
-        if (app) {
-          app.unmount()
-          ;(this as any)._vueApp = null
-        }
-      }
-    },
-  )
   await ctx.onMount()
 }

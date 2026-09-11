@@ -10,14 +10,12 @@ import type { AlertItem, ConfigAccordionItem } from '@/composables/useHelper/typ
 import { getRootVue, useHookVueData, useHookVueFn } from '@/composables/useVue'
 import { run } from '@/index'
 import { counter, initCounter } from '@/message'
-import type { FormDataInput } from '@/types/formData'
 import elmGetter from '@/utils/elmGetter'
 import { logger } from '@/utils/logger'
 
-import { GeekChatClientManager } from './chat'
-import type { BoosJobData } from './delivery'
+import type { BoosJobData, BossWorkflowState } from './delivery'
 import { bossWorkflow } from './delivery'
-import { uploadImage } from './requests'
+import { isDetailForJob } from './detailGuard'
 import type { BossZpDetailData, BossZpJobItemData } from './types'
 
 function removeAd() {
@@ -125,12 +123,10 @@ function convertBossZpJobItemToJobData(item: BossZpJobItemData): JobData {
   }
 }
 
-export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}> {
+export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, BossWorkflowState> {
   private static instance: HTMLElement | null = null
   label = 'Boss直聘'
   key = 'boss'
-
-  geek!: GeekChatClientManager
 
   _page = ref({ page: 1, pageSize: 15 })
   _pageHasMore = ref(true)
@@ -143,7 +139,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   _jobDataMap: Map<string, BoosJobData>
 
   rootVue: any = null
-  jobMaps: Map<string, WorkflowData<BoosJobData, {}>>
+  jobMaps: Map<string, WorkflowData<BoosJobData, BossWorkflowState>>
   jobList: Ref<JobData[]>
 
   constructor() {
@@ -217,55 +213,6 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
     await this.workflow.executeAll(this._jobDataMap)
   }
 
-  async sendMessage(data: WorkflowData<BoosJobData, {}>, msgs: FormDataInput['value']) {
-    logger.debug('发送消息', { jobKey: data.jobData.key, msg: msgs })
-
-    const stanza = {
-      uid: Number(data.rawData.boss.data.bossId),
-      friendSource: data.rawData.detail.bossInfo.bossSource ?? 0,
-      encryptUid: data.rawData.jobitem.encryptBossId,
-      encryptGid: '',
-      clientMid: Date.now(),
-    }
-    if (typeof msgs === 'string') {
-      msgs = [{ type: 'text', content: msgs }]
-    }
-    for (const msg of msgs) {
-      var m
-      // Each chat message needs its own client id; reusing one makes later messages look duplicated.
-      stanza.clientMid = Date.now()
-      if (msg.type === 'image') {
-        const response = await counter.getImage(msg.image)
-        if (!response.success) {
-          throw new Error('图片未上传或已过期')
-        }
-        const u8Array = new Uint8Array(response.buffer)
-        const file = new File([u8Array.buffer], response.name, { type: response.type })
-        const img = await uploadImage(data.rawData.boss.data.securityId, file)
-
-        m = this.geek.msgBuilder.createImageMessage(stanza, {
-          content: {
-            iid: 0,
-            ...img,
-          },
-        })
-      } else if (msg.type === 'text') {
-        this.pendingMessages.value = msg.content
-        await delay(this.conf.formData.delayMessageSending)
-        m = this.geek.msgBuilder.createTextMessage(stanza, {
-          text: this.pendingMessages.value,
-        })
-        this.pendingMessages.value = undefined
-      } else {
-        throw new Error('不支持的消息类型:' + msg['type'])
-      }
-      this.geek.client.publish('chat', this.geek.msgBuilder.encode(m), {
-        qos: 1,
-        retain: true,
-      })
-    }
-  }
-
   async onMount(path?: string) {
     if (!path) {
       path = this.rootVue.$route.path
@@ -301,9 +248,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
     await this._initClickJobCardAction()
     await this._initJobList()
 
-    this.initNetConf()
     const contentElm = elm.querySelector<HTMLDivElement>('.recommend-result-inner')
-    this.geek = new GeekChatClientManager()
 
     watch(
       appearanceConf.value,
@@ -422,33 +367,6 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
               },
             ],
           },
-          conf.configLevel.intermediate && {
-            label: '招呼语配置',
-            value: 'greetings',
-            items: [
-              {
-                type: 'alert',
-                id: 'config-alert-2',
-                showIcon: true,
-                color: 'success',
-                description: '使用自定义招呼语前 推荐禁用boss直聘自带招呼语',
-                actions: [
-                  {
-                    label: '前往',
-                    color: 'neutral',
-                    variant: 'subtle',
-                    onClick: () => {
-                      window.open(
-                        'https://www.zhipin.com/web/geek/notify-set?type=greetSet',
-                        '_blank',
-                      )
-                    },
-                  },
-                ],
-              },
-              { type: 'customGreeting', key: 'customGreeting' },
-            ],
-          },
           {
             label: '外观配置',
             value: 'appearance',
@@ -503,19 +421,6 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
                       max: 99999,
                     },
                   },
-                  {
-                    type: 'inputNumber',
-                    key: 'delayMessageSending',
-                    fieldProps: {
-                      label: '消息发送',
-                      'data-help': '在发送消息前允许等待一定的时间让用户来修改或手动发送,默认值2s',
-                    },
-                    inputNumberProps: {
-                      min: 1,
-                      max: 99999,
-                      disable: true,
-                    },
-                  },
                 ],
               },
             ],
@@ -542,7 +447,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
         reject(new Error('bossZpDetailData获取超时'))
       }, 1000 * 60)
       const interval = setInterval(() => {
-        if (this._jobDetail.value && this._jobDetail.value.lid === job.rawData.jobitem.lid) {
+        if (isDetailForJob(this._jobDetail.value, job.rawData.jobitem)) {
           resolve(this._jobDetail.value)
           clearInterval(interval)
         }
@@ -579,16 +484,6 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
       this._jobList,
       (v) => {
         this.jobList.value = v.map((item) => {
-          // const jobData = convertBossZpJobItemToJobData(item)
-          // if (this.conf.formData.useCache.value) {
-          //   const cacheCheck = checkJobCache(jobData.key)
-          //   if (cacheCheck) {
-          //     jobData.status = {
-          //       status: cacheCheck.status,
-          //       msg: `${cacheCheck.message} (缓存)`,
-          //     }
-          //   }
-          // }
           const job = convertBossZpJobItemToJobData(item)
 
           let jobData = this._jobDataMap.get(job.key)
@@ -601,7 +496,6 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
             jobData = {
               jobitem: item,
               detail: createLazyObject('岗位详情获取'),
-              boss: createLazyObject('Boss信息获取'),
             }
           }
           this._jobDataMap.set(job.key, jobData)
@@ -659,48 +553,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, {}>
   }
 }
 
-// function shouldCaptureChatSocket(url: string | URL | undefined) {
-//   return url != null && url.toString().includes('chatws')
-// }
-
-// function hookChatSocket() {
-//   const NativeWebSocket = window.WebSocket
-//   const HOOK_SYMBOL = Symbol('__IS_HOOKED__')
-
-//   if (!(NativeWebSocket as any)[HOOK_SYMBOL]) {
-//     window.WebSocket = new Proxy(NativeWebSocket, {
-//       construct(target, args, newTarget) {
-//         const socket = Reflect.construct(target, args, newTarget)
-
-//         const [url] = args as [string | URL | undefined, string | string[] | undefined]
-
-//         if (!shouldCaptureChatSocket(url)) {
-//           return socket
-//         }
-//         BossHelperCtx.setSocket(socket)
-//         socket.addEventListener('open', () => {
-//           BossHelperCtx.setSocket(socket)
-//         })
-//         socket.addEventListener('close', () => {
-//           BossHelperCtx.setSocket(null)
-//         })
-
-//         return socket
-//       },
-//     }) as typeof WebSocket
-
-//     Object.defineProperty(window.WebSocket, HOOK_SYMBOL, {
-//       value: true,
-//       enumerable: false,
-//       writable: false,
-//       configurable: false,
-//     })
-//   }
-// }
-
 export default defineUnlistedScript(async () => {
-  // hookChatSocket()
-
   initCounter()
   const bossHelpCtx = await BossHelperCtx.new()
 
@@ -722,7 +575,6 @@ export default defineUnlistedScript(async () => {
       params: {}
       fullPath: string
     }) => {
-      // hookChatSocket()
       void bossHelpCtx.onMount(to.path)
     },
   )

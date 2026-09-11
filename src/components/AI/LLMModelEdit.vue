@@ -30,9 +30,7 @@ const createName = ref(props.model?.name || '')
 const createColor = ref(props.model?.color || color16())
 const testShow = ref(false)
 
-const llmFormData = reactive(
-  props.model?.data ?? ({ mode: 'openai', advanced: {}, other: {} } as OpenaiLLMConf),
-)
+const llmFormData = reactive(props.model?.data ?? ({ mode: 'openai', other: {} } as OpenaiLLMConf))
 
 const testIn = ref('')
 const testOut = ref('')

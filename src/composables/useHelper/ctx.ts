@@ -2,7 +2,6 @@ import type { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
 import { extendRef } from '@vueuse/core'
 import type { Reactive } from 'vue'
 import { ref } from 'vue'
-import type { Ref } from 'vue'
 
 import { useConf } from '@/composables/conf'
 import type { DeliveryWorkflow } from '@/composables/useApplying'
@@ -10,15 +9,10 @@ import type { BossHelperError } from '@/composables/useApplying/deliverError'
 import type { TaskResult, WorkflowData } from '@/composables/useApplying/type'
 import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel'
-import type { FormDataInput } from '@/types/formData'
 
-import type { NetConf } from './netConf'
-import { initNetConf } from './netConf'
 import type { Log, JobData, LogData, ConfigAccordionItem, AlertItem } from './type'
 
 export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
-  netConf: Ref<NetConf | null>
-  netConfTimer: NodeJS.Timeout | null = null
   conf: ReturnType<typeof useConf>
   models: ReturnType<typeof useModel>
   statistics: ReturnType<typeof useStatistics>
@@ -77,7 +71,6 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     this.chatModel = new ChatModel(this)
 
     this.jobResultMaps = reactive(new Map())
-    this.netConf = ref(null)
   }
 
   abstract loadMoreJob(delay: Promise<any>): Promise<boolean>
@@ -85,7 +78,6 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   abstract getConfigItems(): ComputedRef<[AlertItem[], (ConfigAccordionItem | false)[]]>
 
   abstract start(): Promise<void>
-  abstract sendMessage(data: WorkflowData<T, S>, msg: FormDataInput['value']): Promise<void>
   abstract get uid(): string
   abstract get userInfo(): {
     id: string
@@ -94,22 +86,6 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   }
   abstract get key(): string
   abstract get label(): string
-
-  initNetConf() {
-    void initNetConf().then((data) => {
-      this.netConf.value = data
-    })
-    if (!this.netConfTimer) {
-      this.netConfTimer = setInterval(
-        () => {
-          void initNetConf().then((data) => {
-            this.netConf.value = data
-          })
-        },
-        1000 * 60 * 5,
-      )
-    }
-  }
 
   stop() {
     this.workflow?.stop()

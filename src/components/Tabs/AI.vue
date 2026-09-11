@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { ref } from 'vue'
 
+import JobMatchingSettings from '@/components/AI/JobMatchingSettings.vue'
 import LLMModelManage from '@/components/AI/LLMModelManage.vue'
 import LLMPromptEdit from '@/components/AI/LLMPromptEdit.vue'
 import FormSwitch from '@/components/Tabs/ConfigItem/Form/FormSwitch.vue'
@@ -12,7 +13,7 @@ const helper = useHelper()
 const conf = useConf()
 const aiBoxShow = ref(false)
 const aiConfBoxShow = ref(false)
-const aiBox = ref<'aiGreeting' | 'aiFiltering' | 'aiReply' | 'record'>('aiGreeting')
+const aiBox = ref<'aiFiltering'>('aiFiltering')
 
 function change(v: Partial<FormDataAi>) {
   v.enable = !v.enable
@@ -22,20 +23,8 @@ function change(v: Partial<FormDataAi>) {
 
 <template>
   <div class="flex flex-col gap-3" data-help="AI 配置">
+    <JobMatchingSettings />
     <div class="flex flex-wrap gap-3">
-      <FormSwitch
-        :label="formInfoData.aiGreeting.label"
-        :data-help="formInfoData.aiGreeting['data-help']"
-        :data="conf.formData.aiGreeting"
-        :lock="helper.workflow?.status.value === 'running'"
-        @show="
-          () => {
-            aiBox = 'aiGreeting'
-            aiBoxShow = true
-          }
-        "
-        @change="change"
-      />
       <FormSwitch
         :label="formInfoData.aiFiltering.label"
         :data-help="formInfoData.aiFiltering['data-help']"
@@ -49,28 +38,6 @@ function change(v: Partial<FormDataAi>) {
         "
         @change="change"
       />
-      <FormSwitch
-        :label="formInfoData.aiReply.label"
-        :data-help="formInfoData.aiReply['data-help']"
-        :data="conf.formData.aiReply"
-        disabled
-        @show="
-          () => {
-            aiBox = 'aiReply'
-            aiBoxShow = true
-          }
-        "
-        @change="change"
-      />
-      <!-- <formSwitch
-      v-bind="formInfoData.record"
-      :data="formData.record"
-      @show="
-        aiBox = 'record';
-        aiBoxShow = true;
-      "
-      @change="change"
-    /> -->
     </div>
     <div>
       <LLMModelManage>
@@ -89,7 +56,7 @@ function change(v: Partial<FormDataAi>) {
     </div>
 
     <LLMPromptEdit
-      v-if="aiBoxShow && aiBox !== 'record'"
+      v-if="aiBoxShow"
       v-model="aiBoxShow"
       v-key="aiBox"
       :data="aiBox"
