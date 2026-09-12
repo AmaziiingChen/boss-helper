@@ -2,7 +2,7 @@
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 100dvh;
+  height: 100dvh;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   color: var(--p-text-color);
@@ -271,6 +271,28 @@
 
 .ph-settings {
   padding: 0 1.25rem 1.25rem;
+  overflow: hidden;
+}
+
+/* PrimeVue provides controls; these rules only bound the panel's scroll regions.
+   Default TabPanels grow with content and would move both navigation and Save. */
+.ph-settings > .p-tabs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ph-settings .p-tablist {
+  flex: 0 0 auto;
+}
+.ph-settings .p-tabpanels {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.ph-settings .p-tabpanel {
+  height: 100%;
+  min-height: 0;
 }
 
 .ph-settings .p-tabs,
@@ -295,11 +317,30 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  height: 100%;
+  min-height: 0;
+  max-width: 52rem;
+  margin-inline: auto;
+}
+
+.settings-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem;
+  overscroll-behavior: contain;
+}
+.prime-settings-stack > .settings-toolbar,
+.prime-settings-stack > .prime-savebar {
+  flex: 0 0 auto;
 }
 
 .resume-settings {
   min-height: 0;
-  height: calc(100dvh - 10.5rem);
+  height: 100%;
 }
 
 .resume-settings > .p-editor {
@@ -327,6 +368,16 @@
   overscroll-behavior: contain;
 }
 
+/* Compatibility: PrimeVue's bundled list CSS targets Quill 1 <ul>, while
+   Quill 2 emits <ol><li data-list="bullet">. Native Chrome QA showed bullets
+   rendered as numbers. Keep Aura's editor styling and fix only that marker. */
+.resume-settings .ql-editor ol li[data-list='bullet'] {
+  counter-increment: none;
+}
+.resume-settings .ql-editor ol li[data-list='bullet']::before {
+  content: '\2022';
+}
+
 .settings-toolbar-actions .p-fileupload-basic-content > span,
 .settings-toolbar-actions .p-fileupload-basic-content > input {
   display: none;
@@ -351,6 +402,7 @@
 
 .settings-toolbar-actions {
   gap: 0.25rem;
+  flex-wrap: wrap;
 }
 
 .model-connection-form,
@@ -575,13 +627,9 @@
 }
 
 .filter-rule {
-  display: block !important;
+  display: block;
   min-width: 0;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  grid-template-columns: minmax(0, 1fr) !important;
+  padding: 0;
 }
 
 .config-filter-groups {
@@ -606,7 +654,7 @@
 }
 
 .filter-rule + .filter-rule {
-  margin-top: 0 !important;
+  margin-top: 0;
 }
 
 .filter-rule-heading {
@@ -624,6 +672,15 @@
 
 .filter-rule-control {
   margin-top: 0.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.filter-rule-control > .p-selectbutton {
+  justify-self: start;
+}
+.filter-rule-heading > .prime-check-label {
+  width: 100%;
+  justify-content: space-between;
 }
 
 .config-checkbox-row {

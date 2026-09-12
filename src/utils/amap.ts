@@ -49,10 +49,11 @@ export interface AmapDistance {
 
 export async function amapGeocode(
   address: string,
+  apiKey?: string,
 ): Promise<AmapGeocode['geocodes'][number] | undefined> {
   const { formData } = useConf()
   const res = (await fetch(
-    `https://restapi.amap.com/v3/geocode/geo?address=${address}&output=JSON&Key=${formData.amap.key}`,
+    `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(address)}&output=JSON&Key=${encodeURIComponent(apiKey ?? formData.amap.key)}`,
   ).then((response) => response.json())) as AmapGeocode | AmapError
   if (res.status !== '1' || !('geocodes' in res)) {
     throw new Error(res.info)

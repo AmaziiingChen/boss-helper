@@ -15,7 +15,7 @@ const amapGeocodeLoading = ref(false)
 async function amapGeocodeHandler() {
   amapGeocodeLoading.value = true
   try {
-    const res = await amapGeocode(conf.formData.amap.origins)
+    const res = await amapGeocode(conf.formData.amap.origins, conf.formData.amap.key)
     if (res) {
       conf.formData.amap.origins = res.location
     } else {
@@ -71,7 +71,7 @@ function gotoAmapDevSetting() {
           <InputText v-model="conf.formData.amap.key" fluid />
         </label>
         <label class="prime-field" :title="formInfoData.amap.origins['data-help']">
-          <span>{{ formInfoData.amap.origins.label }}</span>
+          <span>通勤起点（完整地址或经纬度）</span>
           <div class="prime-input-action">
             <InputText v-model="conf.formData.amap.origins" :disabled="amapGeocodeLoading" fluid />
             <Button
@@ -88,6 +88,7 @@ function gotoAmapDevSetting() {
 
       <section class="address-section">
         <div class="address-section-heading"><strong>通勤上限</strong></div>
+        <span class="integration-help">各项填写 0 表示不限；距离单位为公里，时间单位为分钟。</span>
         <div class="address-limit-list">
           <label class="address-limit-row" :title="formInfoData.amap.straightDistance['data-help']">
             <span>{{ formInfoData.amap.straightDistance.label }}</span>

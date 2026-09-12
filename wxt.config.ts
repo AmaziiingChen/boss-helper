@@ -1,5 +1,6 @@
 import { resolve } from 'path'
 
+import tailwindcss from '@tailwindcss/vite'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 import tailwindShadowDOM from 'vite-plugin-tailwind-shadowdom'
 import { defineConfig } from 'wxt'
@@ -24,16 +25,9 @@ export default defineConfig({
       __APP_VERSION__: JSON.stringify(version),
     },
     ssr: {
-      noExternal: [
-        '@webext-core/storage',
-        '@webext-core/messaging',
-        '@webext-core/proxy-service',
-      ],
+      noExternal: ['@webext-core/storage', '@webext-core/messaging', '@webext-core/proxy-service'],
     },
-    plugins: [
-      vueJsx(),
-      tailwindShadowDOM(),
-    ],
+    plugins: [vueJsx(), tailwindcss(), tailwindShadowDOM()],
   }),
   dev: {},
   manifest: ({ browser }) => ({

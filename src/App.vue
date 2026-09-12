@@ -16,6 +16,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <Toast position="top-right" />
+  <Toast
+    position="top-right"
+    :breakpoints="{ '480px': { width: 'calc(100% - 2rem)', right: '1rem', left: '1rem' } }"
+  />
   <ProcessingDock />
 </template>

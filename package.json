@@ -35,6 +35,7 @@
     "ai": "^7.0.58",
     "comctx": "^1.7.5",
     "devlog-ui": "workspace:*",
+    "markdown-it": "^15.0.2",
     "primeicons": "^7",
     "primevue": "^4",
     "quill": "^2",
@@ -44,7 +45,9 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.20",
+    "@tailwindcss/vite": "4.2.4",
     "@types/chrome": "^0.2.5",
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^26.2.0",
     "@vitejs/plugin-vue-jsx": "^5.1.6",
     "@vue/tsconfig": "^0.9.1",

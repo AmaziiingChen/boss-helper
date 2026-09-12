@@ -1,5 +1,5 @@
 import { reactiveComputed, watchThrottled } from '@vueuse/core'
-import { reactive, ref } from 'vue'
+import { getCurrentInstance, inject, reactive, ref } from 'vue'
 
 import { counter } from '@/message'
 import { useAppToast } from '@/services/appToast'
@@ -16,7 +16,7 @@ const formDataPresetKey = 'local:FormDataPrese'
 const formDataPresetsKey = 'local:FormDataPreses'
 
 const isLoading = ref(true)
-const formData: FormData = reactive(defaultFormData)
+const formData: FormData = reactive(jsonClone(defaultFormData))
 const formDataPreset = ref('default')
 const formDataPresets = ref([
   {
@@ -110,7 +110,7 @@ const FROM_VERSION: [string, (from: Partial<FormData>) => Partial<FormData>][] =
   ],
 ]
 
-export const useConf = () => {
+const createConf = () => {
   const toast = useAppToast()
 
   async function formDataHandler(from: Partial<FormData>) {
@@ -324,4 +324,22 @@ export const useConf = () => {
     switchPreset,
     isLoading,
   }
+}
+
+export type Conf = ReturnType<typeof createConf>
+export const settingsConfKey = Symbol('settings-conf')
+export const useConf = (): Conf =>
+  (getCurrentInstance() ? inject<Conf | undefined>(settingsConfKey, undefined) : undefined) ??
+  createConf()
+
+let saveQueue: Promise<void> = Promise.resolve()
+export function saveSettingsPatch(patch: Partial<FormData>) {
+  const snapshot = jsonClone(patch)
+  const operation = saveQueue.then(async () => {
+    const next = { ...jsonClone(formData), ...snapshot }
+    await counter.storageSet(formDataKey(), next)
+    Object.assign(formData, snapshot)
+  })
+  saveQueue = operation.catch(() => {})
+  return operation
 }

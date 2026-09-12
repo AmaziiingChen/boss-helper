@@ -5,12 +5,11 @@ import Textarea from 'primevue/textarea'
 import { computed, ref } from 'vue'
 
 import { defaultFormData, useConf } from '@/composables/conf'
-import type { Prompt } from '@/types/formData'
 import { jsonClone } from '@/utils/deepmerge'
 
 const props = defineProps<{ data: 'aiFiltering' }>()
 const conf = useConf()
-const message = ref<Prompt>(jsonClone(conf.formData[props.data].prompt))
+const message = computed(() => conf.formData[props.data].prompt)
 const activeRole = ref<'system' | 'user'>('system')
 const roles = [
   { label: 'System', value: 'system' },
@@ -26,12 +25,7 @@ const activeMessage = computed({
 })
 
 function resetPrompt() {
-  message.value = jsonClone(defaultFormData[props.data].prompt)
-}
-
-async function savePrompt() {
-  conf.formData[props.data].prompt = jsonClone(message.value)
-  await conf.confSaving()
+  conf.formData[props.data].prompt = jsonClone(defaultFormData[props.data].prompt)
 }
 </script>
 
@@ -71,10 +65,6 @@ async function savePrompt() {
             aria-label="选择消息角色"
           />
           <Textarea v-model="activeMessage" rows="7" fluid />
-        </div>
-
-        <div class="inline-prompt-actions">
-          <Button label="保存规则" size="small" @click="savePrompt" />
         </div>
       </div>
     </div>
