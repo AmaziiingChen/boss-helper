@@ -1,10 +1,15 @@
 <script lang="ts" setup>
 import { streamText } from 'ai'
+import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
+import Drawer from 'primevue/drawer'
+import Textarea from 'primevue/textarea'
 import { reactive, ref } from 'vue'
 
 import type { ModelConf } from '@/composables/useModel'
 import { openai } from '@/composables/useModel/openai'
 import type { OpenaiLLMConf } from '@/composables/useModel/openai'
+import { useAppToast } from '@/services/appToast'
 import { jsonClone } from '@/utils/deepmerge'
 import { logger } from '@/utils/logger'
 
@@ -15,22 +20,15 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'create', data: ModelConf): void }>()
 
-const toast = useToast()
-
-function color16() {
-  const r = Math.floor(Math.random() * 256)
-  const g = Math.floor(Math.random() * 256)
-  const b = Math.floor(Math.random() * 256)
-  const color = `#${r.toString(16)}${g.toString(16)}${b.toString(16)}`
-  return color
-}
+const toast = useAppToast()
 
 const show = defineModel<boolean>({ required: true })
-const createName = ref(props.model?.name || '')
-const createColor = ref(props.model?.color || color16())
 const testShow = ref(false)
 
-const llmFormData = reactive(props.model?.data ?? ({ mode: 'openai', other: {} } as OpenaiLLMConf))
+const llmFormData = reactive(
+  props.model?.data ??
+    ({ mode: 'openai', base_url: '', api_key: '', model: '' } as OpenaiLLMConf),
+)
 
 const testIn = ref('')
 const testOut = ref('')
@@ -91,7 +89,7 @@ interface UserInfo {
 
 async function test() {
   const data: ModelConf = jsonClone(props.model || { name: '', key: '' })
-  data.name = createName.value
+  data.name = llmFormData.model || 'AI Model'
   data.data = jsonClone(llmFormData) as ModelConf['data'] & {}
 
   const model = openai.createModel(data.data)
@@ -130,115 +128,95 @@ async function test() {
 
 function create() {
   const data: ModelConf = props.model || { name: '', key: '' }
-  data.name = createName.value
+  data.name = llmFormData.model || 'AI Model'
   data.data = jsonClone(llmFormData) as ModelConf['data'] & {}
   data.data.mode = 'openai'
-  data.color = createColor.value
   emit('create', data)
 }
 </script>
 
 <template>
-  <UModal
-    v-model:open="show"
-    :title="props.model ? '编辑AI模型' : '创建AI模型'"
-    :ui="{ content: 'sm:max-w-[70%]' }"
-    :dismissible="false"
+  <Dialog
+    v-model:visible="show"
+    modal
+    :header="props.model ? '编辑 AI 模型' : '创建 AI 模型'"
+    :closable="false"
+    class="model-editor-dialog"
   >
-    <template #body>
-      <div class="overflow-y-auto" style="max-height: 60vh; padding: 20px">
-        <UFormField :ui="{ root: 'flex max-sm:flex-col justify-between gap-4 items-center' }">
-          <template #label>
-            <span :style="{ background: createColor }" class="size-2"></span>
-            <span>名称</span></template
-          >
-          <UInput v-model="createName" />
-        </UFormField>
-        <UTheme
-          :ui="{
-            formField: {
-              root: 'flex max-sm:flex-col justify-between gap-4 items-center',
-            },
-          }"
-        >
-          <div class="mt-4">
-            <LLMForm v-model="llmFormData" />
-          </div>
-        </UTheme>
+      <div class="model-editor-body">
+        <div class="model-editor-fields">
+          <LLMForm v-model="llmFormData" />
+        </div>
       </div>
-    </template>
 
     <template #footer>
-      <div class="flex justify-end gap-2">
-        <UButton
-          color="neutral"
-          variant="outline"
+      <div class="dialog-actions dialog-actions-primary">
+        <Button
+          label="取消"
+          severity="secondary"
+          outlined
           @click="
             () => {
               show = false
             }
           "
-        >
-          取消
-        </UButton>
-        <UButton
-          color="neutral"
+        />
+        <Button
+          label="测试"
+          severity="secondary"
           @click="
             () => {
               testShow = true
             }
           "
-        >
-          测试
-        </UButton>
-        <UButton @click="create"> 保存 </UButton>
+        />
+        <Button label="保存" @click="create" />
       </div>
     </template>
-  </UModal>
-  <USlideover
-    v-model:open="testShow"
-    title="模型测试"
-    :ui="{ content: 'max-w-lg' }"
-    :dismissible="false"
+  </Dialog>
+  <Drawer
+    v-model:visible="testShow"
+    header="模型测试"
+    position="right"
+    :closable="false"
+    class="model-test-drawer"
   >
-    <template #body>
-      <UFieldGroup class="mb-4">
+      <div class="dialog-chip-actions">
         <template v-for="(example, key) in testExample" :key="key">
-          <UButton
+          <Button
             v-for="(item, index) in example"
             :key="key + index"
+            :label="`${key} ${index + 1}`"
+            severity="secondary"
+            outlined
+            size="small"
             @click="
               () => {
                 testIn = item
               }
             "
-          >
-            {{ key }}
-            {{ index + 1 }}
-          </UButton>
+          />
         </template>
-      </UFieldGroup>
-      <div class="grid grid-cols-2 gap-3">
-        <UTextarea v-model="testIn" :rows="9" placeholder="输入提示词" />
-        <UTextarea :model-value="testOut" :rows="9" placeholder="GPT响应" />
       </div>
-    </template>
+      <div class="model-test-grid">
+        <Textarea v-model="testIn" rows="9" placeholder="输入提示词" fluid />
+        <Textarea :model-value="testOut" rows="9" placeholder="GPT 响应" fluid />
+      </div>
 
     <template #footer>
-      <div class="flex justify-end gap-2">
-        <UButton
-          color="neutral"
-          variant="outline"
+      <div class="dialog-actions dialog-actions-primary">
+        <Button
+          label="返回"
+          severity="secondary"
+          outlined
           @click="
             () => {
               testShow = false
             }
           "
-        >
-          返回
-        </UButton>
-        <UButton @click="test"> 请求 </UButton>
+        />
+        <Button label="发送请求" @click="test" />
       </div>
     </template>
-  </USlideover>
+  </Drawer>
 </template>

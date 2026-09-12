@@ -1,119 +1,69 @@
 <script lang="ts" setup>
-import { computed, ref } from 'vue'
+import Button from 'primevue/button'
+import Editor from 'primevue/editor'
+import FileUpload from 'primevue/fileupload'
+import type { FileUploadSelectEvent } from 'primevue/fileupload'
+import { onMounted } from 'vue'
 
 import { useConf } from '@/composables/conf'
 
+const resumeTemplate = `<h1>姓名</h1>
+<p>手机号 · 邮箱 · 所在城市</p>
+<h2>求职方向</h2>
+<p>目标岗位 / 期望城市</p>
+<h2>教育经历</h2>
+<p><strong>学校名称｜专业｜学历</strong></p>
+<p>起止时间</p>
+<h2>项目经历</h2>
+<p><strong>项目名称｜个人角色</strong></p>
+<ul><li>项目背景与目标</li><li>负责的关键工作</li><li>结果与产出</li></ul>
+<h2>技能</h2>
+<p>工具、技术与行业能力</p>`
+
 const conf = useConf()
-const fileInput = ref<HTMLInputElement>()
-const loadingFile = ref(false)
-const feishuPermissionUrl = computed(() => {
-  const appId = conf.formData.feishu.appId.trim()
-  if (!appId) return ''
-  return `https://open.feishu.cn/app/${encodeURIComponent(appId)}/auth?q=bitable%3Aapp&op_from=openapi&token_type=tenant`
+onMounted(() => {
+  if (!conf.formData.resumeMarkdown.content.trim()) {
+    conf.formData.resumeMarkdown.content = resumeTemplate
+  }
 })
 
-async function importMarkdown(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
+async function selectResume(event: FileUploadSelectEvent) {
+  const file = event.files[0]
   if (!file) return
-  loadingFile.value = true
-  try {
-    conf.formData.resumeMarkdown.content = await file.text()
-    conf.formData.resumeMarkdown.fileName = file.name
-  } finally {
-    loadingFile.value = false
-    input.value = ''
-  }
+  const content = await file.text()
+  conf.formData.resumeMarkdown.content = `<pre>${escapeHtml(content)}</pre>`
+  conf.formData.resumeMarkdown.fileName = file.name
 }
 
-async function save() {
-  await conf.confSaving()
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
 }
 </script>
 
 <template>
-  <div class="rounded-lg border border-default p-4 flex flex-col gap-4">
-    <div class="flex items-center justify-between gap-3">
-      <div>
-        <div class="font-medium">简历匹配与投递</div>
-        <div class="text-sm text-muted">
-          简历文件不会上传；文本保存在浏览器本地，匹配时发送给你配置的 AI 模型。
-        </div>
-      </div>
-      <UButton color="primary" @click="save">保存设置</UButton>
-    </div>
-
-    <UFormField label="Markdown 简历">
-      <div class="flex flex-col gap-2 w-full">
-        <div class="flex items-center gap-2">
-          <input
-            ref="fileInput"
-            class="hidden"
-            type="file"
-            accept=".md,.markdown,text/markdown,text/plain"
-            @change="importMarkdown"
-          />
-          <UButton
-            color="neutral"
-            variant="outline"
-            :loading="loadingFile"
-            @click="fileInput?.click()"
-          >
-            选择 Markdown
-          </UButton>
-          <span class="text-sm text-muted">{{
-            conf.formData.resumeMarkdown.fileName || '未选择文件'
-          }}</span>
-        </div>
-        <UTextarea
-          v-model="conf.formData.resumeMarkdown.content"
-          :rows="7"
-          autoresize
-          :maxrows="14"
-          class="w-full"
-          placeholder="也可以直接粘贴简历 Markdown 全文"
+  <div class="prime-settings-stack resume-settings">
+    <section class="settings-toolbar">
+      <h2>简历</h2>
+      <div class="settings-toolbar-actions">
+        <FileUpload
+          mode="basic"
+          name="resume"
+          accept=".md,.markdown,.txt,text/markdown,text/plain"
+          choose-label="选择"
+          choose-icon="pi pi-plus"
+          custom-upload
+          :choose-button-props="{ severity: 'secondary', text: true }"
+          @select="selectResume"
         />
+        <Button label="保存" icon="pi pi-save" @click="conf.confSaving" />
       </div>
-    </UFormField>
+    </section>
 
-    <div class="flex flex-wrap gap-5">
-      <UCheckbox v-model="conf.formData.autoDelivery.value" label="开启自动投递" />
-      <UCheckbox
-        v-model="conf.formData.deliverReview.value"
-        label="REVIEW 也投递"
-        :disabled="!conf.formData.autoDelivery.value"
-      />
-    </div>
-
-    <div class="border-t border-default pt-4 flex flex-col gap-3">
-      <UCheckbox v-model="conf.formData.feishu.enable" label="同步飞书多维表格" />
-      <div v-if="conf.formData.feishu.enable" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <UAlert
-          class="md:col-span-2"
-          color="info"
-          title="飞书应用须开通 bitable:app 多维表格读写权限并发布版本；readonly 权限不足以新增或更新记录。"
-        />
-        <a
-          v-if="feishuPermissionUrl"
-          class="md:col-span-2 w-fit"
-          :href="feishuPermissionUrl"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <UButton color="neutral" variant="outline">打开飞书权限管理</UButton>
-        </a>
-        <div class="md:col-span-2 text-sm text-muted">
-          同时请在飞书表中创建文本字段：AI 判断理由、AI 匹配点、AI 缺口与风险、AI 待核实项。
-        </div>
-        <UFormField label="App ID"><UInput v-model="conf.formData.feishu.appId" /></UFormField>
-        <UFormField label="App Secret">
-          <UInput v-model="conf.formData.feishu.appSecret" type="password" />
-        </UFormField>
-        <UFormField label="app_token"
-          ><UInput v-model="conf.formData.feishu.appToken"
-        /></UFormField>
-        <UFormField label="table_id"><UInput v-model="conf.formData.feishu.tableId" /></UFormField>
-      </div>
-    </div>
+    <Editor v-model="conf.formData.resumeMarkdown.content" />
   </div>
 </template>

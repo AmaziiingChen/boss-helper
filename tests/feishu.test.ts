@@ -40,7 +40,7 @@ const snapshot = {
   jobStatus: '正常',
 }
 
-test('Feishu upsert authenticates, deduplicates, creates and preserves user progress on update', async () => {
+void test('Feishu upsert authenticates, deduplicates, creates and preserves user progress on update', async () => {
   const calls: Array<{ url: string; init: { method?: string; body?: BodyInit | null } }> = []
   let searchCount = 0
   setFeishuRequestAdapterForTest(async (url, init) => {
@@ -69,7 +69,7 @@ test('Feishu upsert authenticates, deduplicates, creates and preserves user prog
     const create = calls.find(
       (call) => call.init.method === 'POST' && call.url.endsWith('/records'),
     )!
-    const createFields = JSON.parse(String(create.init.body)).fields
+    const createFields = JSON.parse(create.init.body as string).fields
     assert.equal(createFields[feishuFieldNames.applicationProgress], '待处理')
     assert.deepEqual(createFields[feishuFieldNames.title], {
       text: '脱敏岗位',
@@ -80,14 +80,14 @@ test('Feishu upsert authenticates, deduplicates, creates and preserves user prog
     assert.equal(typeof createFields[feishuFieldNames.syncedAt], 'number')
 
     const update = calls.find((call) => call.init.method === 'PUT')!
-    const updateFields = JSON.parse(String(update.init.body)).fields
+    const updateFields = JSON.parse(update.init.body as string).fields
     assert.equal(updateFields[feishuFieldNames.applicationProgress], undefined)
   } finally {
     setFeishuRequestAdapterForTest(undefined)
   }
 })
 
-test('Feishu field errors remain failures and never become successful writes', async () => {
+void test('Feishu field errors remain failures and never become successful writes', async () => {
   setFeishuRequestAdapterForTest(async (url) => {
     if (url.includes('/auth/')) return { code: 0, tenant_access_token: 'test-token', expire: 7200 }
     if (url.includes('/search')) return { code: 0, data: { items: [] } }

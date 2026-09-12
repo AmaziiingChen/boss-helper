@@ -5,7 +5,7 @@ import type { HelperContext } from './ctx'
 export { HelperContext } from './ctx'
 export type { JobBaseData, JobData, LogData, Log } from './type'
 
-export const HelperKey = Symbol() as InjectionKey<HelperContext<any, unknown, unknown>>
+export const HelperKey = Symbol() as InjectionKey<HelperContext<any, any, any>>
 
 export const VITE_VERSION = __APP_VERSION__
 

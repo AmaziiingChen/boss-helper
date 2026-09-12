@@ -1,6 +1,7 @@
 import { ref, toRaw } from 'vue'
 
 import { counter } from '@/message'
+import { useAppToast } from '@/services/appToast'
 import { logger } from '@/utils/logger'
 
 import type { OpenaiLLMConf } from './openai'
@@ -8,7 +9,7 @@ import { openai } from './openai'
 
 export * from './chatModel'
 
-const toast = useToast()
+const toast = useAppToast()
 export const confModelKey = 'conf-model'
 export const llms = [openai.info]
 
@@ -37,8 +38,12 @@ export const useModel = () => {
     modelData.value = data
   }
 
-  async function save() {
+  async function persist() {
     await counter.storageSet(confModelKey, toRaw(modelData.value))
+  }
+
+  async function save() {
+    await persist()
     toast.add({
       title: '保存成功',
       color: 'success',
@@ -49,5 +54,6 @@ export const useModel = () => {
     initModel: init,
     modelData,
     saveModel: save,
+    saveModelSilently: persist,
   }
 }

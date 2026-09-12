@@ -1,17 +1,13 @@
 import { createOpenAI } from '@ai-sdk/openai'
-import type { LanguageModelV3 } from '@ai-sdk/provider'
 
-import { other } from './common'
 import type { LLMConf, LLMInfo } from './type'
 
 export type OpenaiLLMConf = LLMConf<
   'openai',
   {
-    avatar: string
     base_url: string
     api_key: string
     model: string
-    other: other['other']
   }
 >
 
@@ -19,11 +15,6 @@ const info: LLMInfo<OpenaiLLMConf> = {
   mode: {
     mode: 'openai',
     label: 'OpenAI',
-  },
-  avatar: {
-    type: 'input',
-    format: 'avatar',
-    required: true,
   },
   base_url: {
     desc: '可使用中转/代理API, 前提是符合openai的规范, 需要填写base api地址',
@@ -64,10 +55,9 @@ const info: LLMInfo<OpenaiLLMConf> = {
     type: 'input',
     required: true,
   },
-  other,
 }
 
-const createModel: (conf: OpenaiLLMConf) => LanguageModelV3 = (conf) => {
+const createModel = (conf: OpenaiLLMConf) => {
   const openai = createOpenAI({
     baseURL: conf.base_url,
     apiKey: conf.api_key,

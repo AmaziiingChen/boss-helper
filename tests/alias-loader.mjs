@@ -1,5 +1,3 @@
-import { pathToFileURL } from 'node:url'
-
 const sourceRoot = new URL('../src/', import.meta.url)
 
 export async function resolve(specifier, context, nextResolve) {

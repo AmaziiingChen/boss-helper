@@ -1,13 +1,16 @@
 <script lang="ts" setup>
-import type { DropdownMenuItem } from '@nuxt/ui'
+import InputNumber from 'primevue/inputnumber'
+import Select from 'primevue/select'
+import ToggleSwitch from 'primevue/toggleswitch'
 
 import { formInfoData, useConf } from '@/composables/conf'
 import { useHelper } from '@/composables/useHelper/index.js'
 import type { ConfigItem } from '@/composables/useHelper/type'
 
 import Address from './Address.vue'
-import Appearance from './Appearance.vue'
+import FormItem from './Form/FormItem.vue'
 import FormRange from './Form/FormRange.vue'
+import FormSelect from './Form/FormSelect.vue'
 import SalaryRange from './SalaryRange.vue'
 
 const props = defineProps<{
@@ -33,27 +36,13 @@ const exp = computed(() => {
     { label: '90天', value: 90 * 24 * 60 * 60 * 1000 },
     { label: '180天', value: 180 * 24 * 60 * 60 * 1000 },
     { label: '360天', value: 360 * 24 * 60 * 60 * 1000 },
-  ].map(
-    (menu) =>
-      ({
-        ...menu,
-        value: menu.value,
-        type: 'checkbox',
-        checked: conf.formData[(props.item as { key: string }).key].expire === menu.value,
-        onUpdateChecked: (checked: boolean) => {
-          if (checked) {
-            conf.formData[(props.item as { key: string }).key].expire = menu.value
-          }
-        },
-      }) satisfies DropdownMenuItem,
-  )
+  ]
 })
 </script>
 
 <template>
   <Alert v-if="item.type === 'alert'" v-bind="item" />
   <Address v-else-if="item.type === 'address'" />
-  <Appearance v-else-if="item.type === 'appearance'" />
   <FormItem
     v-else-if="item.type === 'companySizeRange'"
     label="公司规模范围"
@@ -70,9 +59,10 @@ const exp = computed(() => {
   </FormItem>
   <SalaryRange v-else-if="item.type === 'salaryRange'" />
 
-  <UFormField v-else-if="item.type === 'inputNumber'" v-bind="item.fieldProps">
-    <UInputNumber v-model="conf.formData[item.key]" v-bind="item.inputNumberProps" />
-  </UFormField>
+  <label v-else-if="item.type === 'inputNumber'" class="prime-field">
+    <span>{{ item.fieldProps?.label }}</span>
+    <InputNumber v-model="conf.formData[item.key]" v-bind="item.inputNumberProps" fluid />
+  </label>
 
   <FormItem
     v-else-if="item.type === 'select'"
@@ -81,7 +71,7 @@ const exp = computed(() => {
     v-model:include="conf.formData[item.key].include"
     :disabled="helper.workflowRunning.value"
   >
-    <formSelect
+    <FormSelect
       v-model:value="conf.formData[item.key].value"
       v-model:options="conf.formData[item.key].options"
     />
@@ -91,27 +81,32 @@ const exp = computed(() => {
     v-bind="formInfoData[item.key]"
     :title="formInfoData[item.key]['data-help']"
   >
-    <UCheckbox v-model="conf.formData[item.key].value" :label="formInfoData[item.key]['label']" />
+    <label class="prime-check-label config-checkbox-row">
+      <ToggleSwitch v-model="conf.formData[item.key].value" />
+      <span>{{ formInfoData[item.key]['label'] }}</span>
+    </label>
   </span>
   <span
     v-else-if="item.type === 'checkbox-expire'"
     v-bind="formInfoData[item.key]"
     :title="formInfoData[item.key]['data-help']"
-    class="flex flex-row gap-0.5 justify-center items-center"
+    class="config-expiry-row"
   >
-    <UCheckbox v-model="conf.formData[item.key].value" :label="formInfoData[item.key]['label']" />
-    <UDropdownMenu v-model="conf.formData[item.key].expire" :items="exp" value-key="value">
-      <UButton
-        icon="i-lucide-clock-fading"
-        color="neutral"
-        variant="outline"
-        title="过期时间"
-        size="xs"
-      />
-    </UDropdownMenu>
+    <label class="prime-check-label">
+      <ToggleSwitch v-model="conf.formData[item.key].value" />
+      <span>{{ formInfoData[item.key]['label'] }}</span>
+    </label>
+    <Select
+      v-model="conf.formData[item.key].expire"
+      :options="exp"
+      option-label="label"
+      option-value="value"
+      aria-label="过期时间"
+      size="small"
+    />
   </span>
 
-  <div v-else-if="item.type === 'div'" v-bind="item">
+  <div v-else-if="item.type === 'div'" :class="item.class">
     <template v-for="(value, index) in item.items" :key="index">
       <ConfigItem v-if="value" :item="value" />
     </template>

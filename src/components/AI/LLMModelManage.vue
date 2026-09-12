@@ -1,9 +1,11 @@
 <script lang="ts" setup>
+import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import { ref } from 'vue'
 
-import Alert from '@/components/Alert.vue'
 import type { ModelConf } from '@/composables/useModel'
 import { useModel } from '@/composables/useModel'
+import { useAppToast } from '@/services/appToast'
 import deepmerge, { jsonClone } from '@/utils/deepmerge'
 import { exportJson, importJson } from '@/utils/jsonImportExport'
 
@@ -11,7 +13,7 @@ import CreateLLM from './LLMModelEdit.vue'
 
 const modelStore = useModel()
 const createBoxShow = ref(false)
-const toast = useToast()
+const toast = useAppToast()
 const open = ref(false)
 
 function del(d: ModelConf) {
@@ -73,65 +75,77 @@ function importllm() {
 </script>
 
 <template>
-  <UModal
-    v-model:open="open"
-    title="Ai模型配置"
-    :ui="{ content: 'sm:max-w-[70%]' }"
-    ref="manageModelRef"
-    :dismissible="false"
+  <span class="model-manager-trigger" @click="open = true"><slot /></span>
+  <Dialog
+    v-model:visible="open"
+    modal
+    header="模型连接"
+    :closable="false"
+    class="model-manager-dialog"
   >
-    <slot />
-    <template #body>
-      <UTable
-        :data="modelStore.modelData.value"
-        :columns="[
-          { id: 'model', header: '模型' },
-          { id: 'desc', header: '描述' },
-          { id: 'manage', header: '管理' },
-        ]"
-        style="width: 100%"
-      >
-        <template #model-cell="{ row }">
-          <div style="align-items: center; display: flex">
-            <UAvatar :src="row.original.data?.avatar" :alt="row.original.name" />
-            <span style="margin-left: 8px">{{ row.original.name }}</span>
-          </div>
-        </template>
-        <template #desc-cell="{ row }">
-          <p class="line-clamp-1">
-            {{ row.original.data && row.original.data.base_url }}
-          </p>
-        </template>
-        <template #manage-cell="{ row }">
-          <div style="width: 200px">
-            <UButton variant="link" color="primary" size="sm" @click="del(row.original)">
-              删除
-            </UButton>
-            <UButton variant="link" color="primary" size="sm" @click="copy(row.original)">
-              复制
-            </UButton>
-            <UButton variant="link" color="primary" size="sm" @click="edit(row.original)">
-              编辑
-            </UButton>
-          </div>
-        </template>
-      </UTable>
+      <div class="model-manager-body">
+        <div v-if="modelStore.modelData.value.length" class="model-list">
+          <article v-for="item in modelStore.modelData.value" :key="item.key" class="model-row">
+            <div class="model-row-copy">
+              <strong>{{ item.data?.model || item.name }}</strong>
+              <span>{{ item.data?.base_url || '尚未填写服务地址' }}</span>
+            </div>
+            <div class="model-row-actions">
+              <Button
+                severity="secondary"
+                text
+                rounded
+                icon="pi pi-copy"
+                size="small"
+                :aria-label="`复制${item.name}`"
+                title="复制"
+                @click="copy(item)"
+              />
+              <Button
+                severity="secondary"
+                text
+                rounded
+                icon="pi pi-pencil"
+                size="small"
+                :aria-label="`编辑${item.name}`"
+                title="编辑"
+                @click="edit(item)"
+              />
+              <Button
+                severity="danger"
+                text
+                rounded
+                icon="pi pi-trash"
+                size="small"
+                :aria-label="`删除${item.name}`"
+                title="删除"
+                @click="del(item)"
+              />
+            </div>
+          </article>
+        </div>
+        <div v-else class="dialog-empty">
+          <p>还没有模型</p>
+        </div>
+      </div>
       <CreateLLM
         v-if="createBoxShow"
         v-model="createBoxShow"
         :model="createModelData"
         @create="create"
       />
-    </template>
-
     <template #footer>
-      <div class="flex justify-end gap-2">
-        <UButton color="neutral" variant="outline" @click="close"> 取消 </UButton>
-        <UButton color="success" @click="exportllm"> 导出 </UButton>
-        <UButton color="success" @click="importllm"> 导入 </UButton>
-        <UButton @click="newllm"> 新建 </UButton>
-        <UButton @click="modelStore.saveModel"> 保存 </UButton>
+      <div class="dialog-actions">
+        <div class="dialog-actions-secondary">
+          <Button label="导出" severity="secondary" text @click="exportllm" />
+          <Button label="导入" severity="secondary" text @click="importllm" />
+        </div>
+        <div class="dialog-actions-primary">
+          <Button label="取消" severity="secondary" outlined @click="close" />
+          <Button label="新建" icon="pi pi-plus" severity="secondary" outlined @click="newllm" />
+          <Button label="保存" @click="modelStore.saveModel" />
+        </div>
       </div>
     </template>
-  </UModal>
+  </Dialog>
 </template>

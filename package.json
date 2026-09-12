@@ -3,7 +3,7 @@
   "displayName": "BossHelper",
   "version": "0.5.2.2",
   "private": true,
-  "description": "Boss直聘助手, 皆在减少投递简历的麻烦, 和提高投递简历的效率,技术栈使用VIte + Vue3 + element-plus",
+  "description": "基于 WXT、Vue 3 与 PrimeVue 的 BOSS 直聘求职辅助浏览器扩展",
   "workspaces": [
     "packages/*"
   ],
@@ -31,10 +31,13 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.36",
-    "@nuxt/ui": "^4.10.0",
+    "@primeuix/themes": "^1",
     "ai": "^7.0.58",
     "comctx": "^1.7.5",
     "devlog-ui": "workspace:*",
+    "primeicons": "^7",
+    "primevue": "^4",
+    "quill": "^2",
     "tailwindcss": "^4.2.4",
     "vue": "^3.5.41",
     "zod": "^4.4.3"
@@ -54,7 +57,7 @@
     "oxlint": "^1.77.0",
     "oxlint-tsgolint": "^7.0.2001",
     "sass": "^1.99.0",
-    "typescript": "^7.0.2",
+    "typescript": "^5.9.3",
     "uid": "^2.0.2",
     "vite": "^8.0.16",
     "vite-plugin-tailwind-shadowdom": "^1.1.1",

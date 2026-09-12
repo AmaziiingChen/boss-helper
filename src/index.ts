@@ -1,4 +1,6 @@
-import ui from '@nuxt/ui/vue-plugin'
+import Aura from '@primeuix/themes/aura'
+import PrimeVue from 'primevue/config'
+import Tooltip from 'primevue/tooltip'
 import { createApp } from 'vue'
 
 import App from './App.vue'
@@ -19,7 +21,12 @@ export async function run<C extends HelperContext<C, T, S>, T, S>(ctx: HelperCon
     shadow.appendChild(container)
 
     const app = createApp(App)
-    app.use(ui)
+    app.use(PrimeVue, {
+      theme: {
+        preset: Aura,
+      },
+    })
+    app.directive('tooltip', Tooltip)
     app.provide(HelperKey, ctx as never)
     app.mount(container)
 

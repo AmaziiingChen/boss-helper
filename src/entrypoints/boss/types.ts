@@ -1,4 +1,8 @@
-import type { DeepPartial } from '@nuxt/ui'
+type DeepPartial<T> = T extends object
+  ? {
+      [K in keyof T]?: DeepPartial<T[K]>
+    }
+  : T
 
 /**
  * 职位信息,在模板中通常使用 data 获取

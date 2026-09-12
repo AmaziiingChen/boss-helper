@@ -6,10 +6,11 @@ import {
   PublishError,
   RateLimitError,
 } from '@/composables/useApplying/deliverError'
+import { useAppToast } from '@/services/appToast'
 import { logger } from '@/utils/logger'
 
 // const { userInfo } = useStore()
-const toast = useToast()
+const toast = useAppToast()
 export const sameCompanyKey = 'local:sameCompany'
 export const sameHrKey = 'local:sameHr'
 

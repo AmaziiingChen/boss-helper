@@ -1,5 +1,3 @@
-import type { AccordionItem, FormFieldProps, InputNumberProps } from '@nuxt/ui'
-
 import type { ExtendedAlertProps } from '@/components/Alert.vue'
 import type { amapDistance, amapGeocode } from '@/utils/amap'
 
@@ -128,13 +126,7 @@ export type ConfigItem =
       type:
         | 'select'
         | 'checkbox'
-        | (
-            | 'salaryRange'
-            | 'companySizeRange'
-            | 'address'
-            | 'appearance'
-            | 'checkbox-expire'
-          )
+        | ('salaryRange' | 'companySizeRange' | 'address' | 'checkbox-expire')
     }
   | AlertItem
   | {
@@ -146,10 +138,12 @@ export type ConfigItem =
   | {
       type: 'inputNumber'
       key: string
-      fieldProps?: FormFieldProps
-      inputNumberProps?: InputNumberProps
+      fieldProps?: Record<string, unknown>
+      inputNumberProps?: Record<string, unknown>
     }
 
-export interface ConfigAccordionItem extends AccordionItem {
+export interface ConfigAccordionItem {
+  label?: string
+  value?: string
   items?: (ConfigItem | false)[]
 }

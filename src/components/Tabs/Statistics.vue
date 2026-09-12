@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import Button from 'primevue/button'
+import ButtonGroup from 'primevue/buttongroup'
+import ProgressBar from 'primevue/progressbar'
+import Select from 'primevue/select'
 import { computed, onMounted, ref } from 'vue'
 
 import Alert from '@/components/Alert.vue'
@@ -93,24 +97,13 @@ onMounted(() => {
         </div>
       </div>
       <div :data-help="statisticCycleData[statisticCycle]?.help">
-        <UDropdownMenu
-          :items="
-            statisticCycleData.map((item, index) => ({
-              label: item.label,
-              onSelect: () => (statisticCycle = index),
-            }))
-          "
-        >
-          <div class="text-sm text-gray-500 cursor-pointer flex items-center gap-1">
-            {{ statisticCycleData[statisticCycle]?.label }}:
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 1024 1024">
-              <path
-                fill="currentColor"
-                d="M831.872 340.864 512 652.672 192.128 340.864a30.592 30.592 0 0 0-42.752 0 29.12 29.12 0 0 0 0 41.6L489.664 714.24a32 32 0 0 0 44.672 0l340.288-331.712a29.12 29.12 0 0 0 0-41.728 30.592 30.592 0 0 0-42.752 0z"
-              />
-            </svg>
-          </div>
-        </UDropdownMenu>
+        <Select
+          v-model="statisticCycle"
+          :options="statisticCycleData.map((item, index) => ({ label: item.label, value: index }))"
+          option-label="label"
+          option-value="value"
+          size="small"
+        />
         <div class="text-2xl font-semibold">
           {{ cycle + todayData.success }}
           <span class="text-sm text-gray-400">份</span>
@@ -118,36 +111,33 @@ onMounted(() => {
       </div>
     </div>
     <div class="flex flex-row gap-2 items-center justify-center">
-      <UFieldGroup>
-        <UButton
-          color="primary"
+      <ButtonGroup>
+        <Button
+          :label="helper.workflow?.status.value === 'stop' ? '继续' : '开始'"
           data-help="点击开始就会开始投递"
           :loading="helper.workflow?.status.value === 'running'"
           @click="helper.start()"
-        >
-          {{ helper.workflow?.status.value === 'stop' ? '继续' : '开始' }}
-        </UButton>
-        <UButton
+        />
+        <Button
           v-if="helper.workflow?.status.value === 'stop'"
-          color="warning"
+          label="重置筛选"
+          severity="warn"
           data-help="重置已被筛选的岗位，开始将重新处理"
           @click="helper.reset()"
-        >
-          重置筛选
-        </UButton>
-        <UButton
+        />
+        <Button
           v-if="helper.workflow?.status.value === 'running'"
-          color="warning"
+          label="暂停"
+          severity="warn"
           data-help="暂停后应该能继续"
           @click="helper.stop()"
-        >
-          暂停
-        </UButton>
-      </UFieldGroup>
-      <UProgress
+        />
+      </ButtonGroup>
+      <ProgressBar
         data-help="我会统计当天脚本投递的数量,该记录并不准确"
         class="flex-1"
-        :model-value="(todayData.success / conf.formData.deliveryLimit.value) * 100"
+        :value="(todayData.success / conf.formData.deliveryLimit.value) * 100"
+        :show-value="false"
       />
     </div>
   </div>

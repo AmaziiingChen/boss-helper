@@ -1,132 +1,116 @@
 <script lang="ts" setup>
-import Alert from '@/components/Alert.vue'
-import { formInfoData, useConf } from '@/composables/conf'
+import Accordion from 'primevue/accordion'
+import AccordionContent from 'primevue/accordioncontent'
+import AccordionHeader from 'primevue/accordionheader'
+import AccordionPanel from 'primevue/accordionpanel'
+import Button from 'primevue/button'
+import InputNumber from 'primevue/inputnumber'
+import ToggleSwitch from 'primevue/toggleswitch'
+import { computed } from 'vue'
+
+import { useConf } from '@/composables/conf'
 import { useHelper } from '@/composables/useHelper'
+import type { ConfigAccordionItem } from '@/composables/useHelper/type'
 
 import ConfigItem from './ConfigItem/ConfigItem.vue'
 
 const helper = useHelper()
 const conf = useConf()
 const configItems = helper.getConfigItems()
+const automationSections = computed(() =>
+  configItems.value[1].filter((item): item is ConfigAccordionItem => Boolean(item)),
+)
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
-    <UTheme
-      :ui="{
-        formField: {
-          root: 'flex max-sm:flex-col justify-between gap-4 items-center',
-          container: 'flex-1',
-        },
-        input: {
-          root: 'w-full',
-        },
-        inputMenu: {
-          root: 'w-full',
-        },
-        inputTags: {
-          root: 'w-full',
-        },
-      }"
+  <div class="prime-settings-stack">
+    <section class="settings-toolbar">
+      <h2>自动化设置</h2>
+      <div class="settings-toolbar-actions">
+        <Button
+          v-tooltip.bottom="'配置保存在当前浏览器；任务运行时会锁定筛选项，保存后生效。'"
+          icon="pi pi-info-circle"
+          severity="secondary"
+          text
+          rounded
+          aria-label="配置说明"
+        />
+        <Button
+          label="推荐值"
+          severity="secondary"
+          outlined
+          size="small"
+          @click="conf.confRecommend"
+        />
+      </div>
+    </section>
+
+    <fieldset
+      class="prime-settings-fieldset"
+      :disabled="helper.workflowRunning.value || conf.isLoading.value"
     >
-      <Alert v-for="(items, index) in configItems[0]" :key="index" v-bind="items" />
-      <UForm :disabled="helper.workflowRunning.value || conf.isLoading.value">
-        <UAccordion
-          type="single"
-          collapsible
-          :items="configItems[1].filter((item) => !!item)"
-          :ui="{ content: 'data-[state=open]:pt-1 data-[state=open]:pb-3 px-2 gap-3' }"
-          :unmount-on-hide="false"
-          default-value="filter"
+      <Accordion value="filter">
+        <AccordionPanel
+          v-for="item in automationSections"
+          :key="item.value"
+          :value="item.value || String(item.label)"
         >
-          <template #body="{ item }">
-            <template v-for="(v, i) in item.items" :key="i">
-              <ConfigItem v-if="v" :item="v" />
-            </template>
-          </template>
-        </UAccordion>
-        <hr class="border-t border-gray-200 dark:border-gray-800" />
-        <div class="mt-3 flex flex-row flex-wrap gap-5 items-center">
-          <UFormField label="配置级别" :data-help="formInfoData.configLevel['data-help']">
-            <USelectMenu
-              v-model="conf.formData.configLevel"
-              :items="formInfoData.configLevel.options"
-              value-key="value"
-              label-key="label"
-              :search-input="false"
-            />
-          </UFormField>
-          <span data-help="可以在网站管理中打开通知权限,当停止时会自动发送桌面端通知提醒。">
-            <UCheckbox label="发送通知" v-model="conf.formData.notification.value" />
-          </span>
-          <UFormField v-if="conf.configLevel.intermediate" label="投递数量">
-            <UInputNumber
-              label="投递数量"
-              data-help="达到上限后会自动暂停，默认100次, 当前boss上限为150"
+          <AccordionHeader>{{ item.label }}</AccordionHeader>
+          <AccordionContent>
+            <div v-if="item.value === 'filter'" class="config-filter-groups">
+              <section
+                v-for="(entry, index) in item.items"
+                :key="index"
+                class="config-filter-group"
+              >
+                <h3>{{ index === 0 ? '关键词规则' : '基础过滤' }}</h3>
+                <ConfigItem v-if="entry" :item="entry" />
+              </section>
+            </div>
+            <div v-else class="prime-setting-grid">
+              <template v-for="(entry, index) in item.items" :key="index">
+                <ConfigItem v-if="entry" :item="entry" />
+              </template>
+            </div>
+          </AccordionContent>
+        </AccordionPanel>
+      </Accordion>
+
+      <section class="prime-settings-section">
+        <div class="prime-section-heading">
+          <h2>运行</h2>
+        </div>
+        <div class="prime-setting-grid">
+          <div class="prime-toggle-row">
+            <div>
+              <strong>完成时通知</strong>
+            </div>
+            <ToggleSwitch v-model="conf.formData.notification.value" aria-label="完成时通知" />
+          </div>
+
+          <label class="prime-field">
+            <span>单日投递上限</span>
+            <InputNumber
               v-model="conf.formData.deliveryLimit.value"
               :min="1"
               :max="155"
               :step="10"
+              show-buttons
+              fluid
             />
-          </UFormField>
+          </label>
         </div>
-      </UForm>
-      <div class="flex flex-row *:flex *:flex-row justify-between *:gap-3 mt-3">
-        <div>
-          <UButton color="success" data-help="保存配置" @click="conf.confSaving">
-            保存配置
-          </UButton>
-          <UButton color="warning" data-help="重新加载本地配置" @click="conf.confReload">
-            重载配置
-          </UButton>
-          <UButton
-            color="primary"
-            data-help="不同版本的参数可能会调整, 更新之后一键应用, 不会覆盖主要筛选条件"
-            @click="conf.confRecommend"
-          >
-            使用推荐配置
-          </UButton>
-        </div>
-        <div>
-          <UFormField
-            label="预设: "
-            data-help="虽然不维护多账号了, 但是预设还是要有的, 这样使用隐身/第三方扩展依旧能多账号使用. 多账号是一件多助人为乐的事呀"
-          >
-            <UInputMenu
-              v-model="conf.formDataPreset.value"
-              :items="conf.formDataPresets.value"
-              value-key="value"
-              create-item
-              @create="conf.createPreset"
-              @update:model-value="(v) => conf.switchPreset(v)"
-            />
-          </UFormField>
-          <UButton
-            v-if="conf.configLevel.intermediate"
-            color="primary"
-            data-help="互联网就是要分享"
-            @click="conf.confExport"
-          >
-            导出配置
-          </UButton>
-          <UButton
-            v-if="conf.configLevel.intermediate"
-            color="primary"
-            data-help="互联网就是要分享"
-            @click="conf.confImport"
-          >
-            导入配置
-          </UButton>
-          <UButton
-            v-if="conf.configLevel.advanced"
-            color="error"
-            data-help="清空配置,不会帮你保存,可以重载恢复"
-            @click="conf.confDelete"
-          >
-            清空配置
-          </UButton>
-        </div>
-      </div>
-    </UTheme>
+      </section>
+    </fieldset>
+
+    <div class="prime-savebar">
+      <span />
+      <Button
+        label="保存配置"
+        icon="pi pi-save"
+        :loading="conf.isLoading.value"
+        @click="conf.confSaving"
+      />
+    </div>
   </div>
 </template>

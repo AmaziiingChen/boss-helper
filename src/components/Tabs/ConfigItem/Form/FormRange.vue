@@ -1,5 +1,6 @@
 <script lang="ts" setup>
-import type { InputNumberProps } from '@nuxt/ui'
+import Button from 'primevue/button'
+import InputNumber from 'primevue/inputnumber'
 
 const props = withDefaults(
   defineProps<{
@@ -8,14 +9,9 @@ const props = withDefaults(
     show: boolean
     step?: number
     controls?: boolean
-    ui?: InputNumberProps['ui']
   }>(),
   {
     controls: true,
-    ui: {
-      // @ts-ignore
-      base: 'max-w-25',
-    },
   },
 )
 
@@ -25,29 +21,30 @@ const handleToggle = () => {
 </script>
 
 <template>
-  <UFieldGroup>
-    <UInputNumber
+  <div class="range-control">
+    <InputNumber
       v-model="props.value[0]"
       :min="0"
       :step="props.step"
-      :increment="false"
-      :decrement="false"
-      :ui="props.ui"
+      :show-buttons="props.controls"
     />
-    <UBadge>-</UBadge>
-    <UInputNumber
+    <span class="range-separator" aria-hidden="true">至</span>
+    <InputNumber
       v-model="props.value[1]"
       :min="0"
       :step="props.step"
-      :increment="false"
-      :decrement="false"
-      :ui="props.ui"
+      :show-buttons="props.controls"
     />
 
-    <UBadge>{{ props.unit }}</UBadge>
-    <UButton v-if="props.show" @click="handleToggle">
-      {{ props.value[2] ? '严格' : '宽松' }}
-    </UButton>
+    <span class="range-unit">{{ props.unit }}</span>
+    <Button
+      v-if="props.show"
+      :label="props.value[2] ? '严格' : '宽松'"
+      severity="secondary"
+      text
+      size="small"
+      @click="handleToggle"
+    />
     <slot />
-  </UFieldGroup>
+  </div>
 </template>

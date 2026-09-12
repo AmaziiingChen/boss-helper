@@ -10,5 +10,11 @@ export default defineBackground({
     })
 
     provideBackgroundCounter(new ProvideBackgroundAdapter())
+
+    const sidePanel = (browser as typeof browser & { sidePanel?: typeof browser.sidePanel })
+      .sidePanel
+    if (sidePanel) {
+      void sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    }
   },
 })

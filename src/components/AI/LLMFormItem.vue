@@ -1,6 +1,8 @@
 <script lang="ts" setup generic="T extends object">
-import UInput from '@nuxt/ui/components/Input.vue'
-import UInputNumber from '@nuxt/ui/components/InputNumber.vue'
+import Checkbox from 'primevue/checkbox'
+import InputNumber from 'primevue/inputnumber'
+import Message from 'primevue/message'
+import Select from 'primevue/select'
 
 import type { LLMInfoValM, LLMInfoValF } from '@/composables/useModel/type'
 
@@ -15,18 +17,16 @@ const fromVal = defineModel<any>({
 })
 
 const isSetVal = ref(fromVal.value !== undefined)
+const componentConfig = (config: unknown): any => config
 </script>
 
 <template>
   <template v-if="'alert' in info">
-    <UAlert
-      :title="info.label"
-      :description="info.desc"
-      :color="info.alert"
-      variant="subtle"
-      class="mb-4 relative left-1/2 -translate-x-1/2 w-[102%]"
-    />
-    <div class="space-y-3">
+    <Message :severity="info.alert === 'warning' ? 'warn' : info.alert" :closable="false" class="model-form-alert">
+      <strong>{{ info.label }}</strong>
+      <span v-if="info.desc">{{ info.desc }}</span>
+    </Message>
+    <div class="model-form-group">
       <LLMFormItem
         v-for="(x, k) in info.value"
         :key="k"
@@ -38,21 +38,15 @@ const isSetVal = ref(fromVal.value !== undefined)
     </div>
   </template>
 
-  <UFormField
-    v-else
-    :required="info.required"
-    class="w-full"
-    :ui="{ container: 'flex flex-row gap-2 flex-1 *:w-full max-w-3/5' }"
-  >
-    <template #label>
-      <span :title="info.desc" class="inline-flex items-center text-center gap-2">
-        <UIcon v-if="info.desc" name="i-lucide-info" />
-        {{ info.label ?? label }}</span
-      >
-    </template>
-    <UCheckbox
+  <label v-else class="prime-field model-form-field">
+    <span :title="info.desc" class="model-form-label">
+      <i v-if="info.desc" class="pi pi-info-circle" aria-hidden="true" />
+      {{ info.label ?? label }}
+    </span>
+    <Checkbox
       v-if="!info.required"
       v-model="isSetVal"
+      binary
       @update:model-value="
         (x) => {
           if (!x) fromVal = undefined
@@ -60,12 +54,21 @@ const isSetVal = ref(fromVal.value !== undefined)
       "
     />
     <template v-if="info.required || isSetVal">
-      <UInputNumber
+      <InputNumber
         v-if="info.type === 'input' && info.format === 'number'"
         v-model="fromVal"
-        v-bind="info.config"
-      ></UInputNumber>
-      <UInput v-else-if="info.type === 'input'" v-model="fromVal" v-bind="info.config"></UInput>
+        v-bind="componentConfig(info.config)"
+        fluid
+      />
+      <Select
+        v-else-if="info.type === 'input'"
+        v-model="fromVal"
+        option-value="value"
+        option-label="label"
+        v-bind="componentConfig(info.config)"
+        editable
+        fluid
+      />
     </template>
-  </UFormField>
+  </label>
 </template>

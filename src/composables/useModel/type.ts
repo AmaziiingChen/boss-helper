@@ -1,13 +1,11 @@
-import type { InputProps, InputNumberProps } from '@nuxt/ui'
-
 export type LLMConf<M extends string, T> = { mode: M } & T
 
 export type FormElm =
-  | { type: 'input'; config?: InputProps; format?: 'url' | 'json' | 'avatar' }
+  | { type: 'input'; config?: Record<string, unknown>; format?: 'url' | 'json' | 'avatar' }
   | {
       type: 'input'
       format: 'number'
-      config?: InputNumberProps
+      config?: Record<string, unknown>
     }
 
 type IsStructuredObject<T> =
@@ -20,7 +18,7 @@ export type LLMInfoValM<T, F extends object> = {
   alert: 'success' | 'warning' | 'info' | 'error'
 }
 
-export type LLMInfoValF<T, F> = {
+export type LLMInfoValF<_T, F> = {
   value?: F
   label?: string
   desc?: string

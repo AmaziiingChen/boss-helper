@@ -1,62 +1,79 @@
 <script setup lang="ts">
-import type { AlertProps } from '@nuxt/ui/components/Alert.vue'
+import Button from 'primevue/button'
+import Message from 'primevue/message'
 import { computed, onMounted, ref } from 'vue'
 
 import { counter } from '@/message'
 
-export interface ExtendedAlertProps extends /* @vue-ignore */ AlertProps {
+type AlertColor = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'primary'
+
+export interface ExtendedAlertProps {
   id?: string
+  title?: string
+  description?: string
+  color?: AlertColor
+  type?: string
   showIcon?: boolean
+  close?: boolean | Record<string, unknown>
+  closable?: boolean
+  variant?: string
+  orientation?: string
+  icon?: string | null
+  actions?: Array<{
+    label: string
+    color?: string
+    variant?: string
+    onClick?: () => void
+  }>
 }
 
 const props = defineProps<ExtendedAlertProps>()
 
 const storageKey = computed(() => `local:alert:${props.id}`)
 const isVisible = ref(true)
+const severity = computed<'success' | 'error' | 'warn' | 'info' | 'secondary'>(() => {
+  if (props.color === 'warning') return 'warn'
+  if (props.color === 'neutral') return 'secondary'
+  if (props.color === 'primary') return 'info'
+  return props.color ?? 'info'
+})
+const canClose = computed(() => props.closable !== false && (Boolean(props.close) || Boolean(props.id)))
 
 onMounted(async () => {
   const shouldHide = await counter.storageGet(storageKey.value, false)
   isVisible.value = !shouldHide
 })
 
-const handleClose = async () => {
+async function handleClose() {
   await counter.storageSet(storageKey.value, true)
   isVisible.value = false
 }
-
-const icon = computed(() => {
-  if (props.icon) return props.icon
-  if (props.showIcon === false) return null
-  switch (props.color) {
-    case 'success':
-      return 'solar:check-circle-outline'
-    case 'error':
-      return 'solar:close-circle-outline'
-    case 'warning':
-      return 'solar:shield-warning-outline'
-    default:
-      return 'solar:info-circle-outline'
-  }
-})
 </script>
 
 <template>
-  <UAlert
+  <Message
     v-if="isVisible"
-    v-bind="props"
+    class="app-alert"
+    :severity="severity"
+    :closable="canClose"
     @close="handleClose"
-    :close="props.close ? props.close : props.id ? true : undefined"
-    :icon="icon"
-    :color="props.color ?? 'info'"
-    :variant="props.variant ?? 'subtle'"
-    :orientation="props.orientation ?? 'horizontal'"
   >
-    <slot />
-    <template #title>
-      <slot name="title"></slot>
-    </template>
-    <template #description>
-      <slot name="description"></slot>
-    </template>
-  </UAlert>
+    <div class="app-alert-content">
+      <strong v-if="title"><slot name="title">{{ title }}</slot></strong>
+      <div v-if="description || $slots.description" class="app-alert-description">
+        <slot name="description">{{ description }}</slot>
+      </div>
+      <slot />
+      <div v-if="actions?.length" class="app-alert-actions">
+        <Button
+          v-for="action in actions"
+          :key="action.label"
+          :label="action.label"
+          size="small"
+          text
+          @click="action.onClick"
+        />
+      </div>
+    </div>
+  </Message>
 </template>

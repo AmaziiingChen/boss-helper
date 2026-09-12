@@ -1,8 +1,14 @@
 <script lang="ts" setup>
+import Button from 'primevue/button'
+import InputNumber from 'primevue/inputnumber'
+import InputText from 'primevue/inputtext'
+import ToggleSwitch from 'primevue/toggleswitch'
+
 import { formInfoData, useConf } from '@/composables/conf'
+import { useAppToast } from '@/services/appToast'
 
 const conf = useConf()
-const toast = useToast()
+const toast = useAppToast()
 
 const amapGeocodeLoading = ref(false)
 
@@ -35,124 +41,142 @@ function gotoAmapDevSetting() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
-    <Alert
-      id="config-amap-2"
-      show-icon
-      type="info"
-      title="使用高德地图前, 需自行创建key (每日免费配额足够使用)"
-      description="推荐结合工作地址包含使用, 创建路径: 创建应用 -> 添加key -> Web服务"
-      :actions="[
-        {
-          label: '前往创建',
-          color: 'primary',
-          variant: 'subtle',
-          onClick: gotoAmapDevSetting,
-        },
-      ]"
-    >
-    </Alert>
-    <Alert
-      id="config-amap-ai"
-      :closable="false"
-      type="info"
-      title="AI Prompt 参考如下语法(仅筛选可用):"
-    >
-      <template #description>
-        <div class="grid grid-cols-2 gap-2">
-          <span v-pre>直线距离: {{ amap.straightDistance }}km</span>
-          <span v-pre>驾车距离: {{ amap.drivingDistance }}km</span>
-          <span v-pre>驾车时间: {{ amap.drivingDuration }}分钟</span>
-          <span v-pre>步行距离: {{ amap.walkingDistance }}km</span>
-          <span v-pre>步行时间: {{ amap.walkingDuration }}分钟</span>
-        </div>
-      </template>
-    </Alert>
-    <div class="flex gap-3 items-center">
-      <span v-bind="formInfoData.amap.enable">
-        <UCheckbox v-model="conf.formData.amap.enable" />
-      </span>
-      <UFormField v-bind="formInfoData.amap.key">
-        <UInput v-model="conf.formData.amap.key" />
-      </UFormField>
+  <div class="address-settings">
+    <div class="address-master-row">
+      <div>
+        <strong>通勤距离筛选</strong>
+        <span>根据起点与岗位地址计算距离和时间</span>
+      </div>
+      <ToggleSwitch
+        v-model="conf.formData.amap.enable"
+        v-bind="formInfoData.amap.enable"
+        aria-label="通勤距离筛选"
+      />
     </div>
-    <div class="grid grid-cols-2 gap-2">
-      <UFormField v-bind="formInfoData.amap.origins">
-        <UFieldGroup>
-          <UInput v-model="conf.formData.amap.origins" :disabled="amapGeocodeLoading" />
-          <UButton
-            color="primary"
-            :loading="amapGeocodeLoading"
-            @click="amapGeocodeHandler()"
-            icon="solar:magnifer-bug-outline"
-            title="根据完整地址获取经纬度"
-          >
-          </UButton>
-        </UFieldGroup>
-      </UFormField>
-      <UFormField v-bind="formInfoData.amap.straightDistance">
-        <UFieldGroup>
-          <UInputNumber
-            v-model="conf.formData.amap.straightDistance"
-            :precision="1"
-            :max="1000"
-            :min="0"
-            :step="1"
-          />
-          <UBadge label="km" />
-        </UFieldGroup>
-      </UFormField>
 
-      <UFormField v-bind="formInfoData.amap.drivingDistance">
-        <UFieldGroup>
-          <UInputNumber
-            v-model="conf.formData.amap.drivingDistance"
-            :precision="1"
-            :max="1000"
-            :min="0"
-            :step="1"
+    <div v-if="conf.formData.amap.enable" class="address-config-body">
+      <section class="address-section">
+        <div class="address-section-heading">
+          <strong>定位来源</strong>
+          <Button
+            label="创建 Key"
+            severity="secondary"
+            text
+            size="small"
+            @click="gotoAmapDevSetting"
           />
-          <UBadge label="km" />
-        </UFieldGroup>
-      </UFormField>
-      <UFormField v-bind="formInfoData.amap.drivingDuration">
-        <UFieldGroup>
-          <UInputNumber
-            v-model="conf.formData.amap.drivingDuration"
-            :precision="2"
-            :max="1440"
-            :min="0"
-            :step="30"
-          />
+        </div>
+        <label class="prime-field" :title="formInfoData.amap.key['data-help']">
+          <span>高德地图 Key</span>
+          <InputText v-model="conf.formData.amap.key" fluid />
+        </label>
+        <label class="prime-field" :title="formInfoData.amap.origins['data-help']">
+          <span>{{ formInfoData.amap.origins.label }}</span>
+          <div class="prime-input-action">
+            <InputText v-model="conf.formData.amap.origins" :disabled="amapGeocodeLoading" fluid />
+            <Button
+              icon="pi pi-map-marker"
+              size="small"
+              aria-label="根据完整地址获取经纬度"
+              title="根据完整地址获取经纬度"
+              :loading="amapGeocodeLoading"
+              @click="amapGeocodeHandler()"
+            />
+          </div>
+        </label>
+      </section>
 
-          <UBadge label="分钟" />
-        </UFieldGroup>
-      </UFormField>
+      <section class="address-section">
+        <div class="address-section-heading"><strong>通勤上限</strong></div>
+        <div class="address-limit-list">
+          <label class="address-limit-row" :title="formInfoData.amap.straightDistance['data-help']">
+            <span>{{ formInfoData.amap.straightDistance.label }}</span>
+            <div class="prime-input-unit">
+              <InputNumber
+                v-model="conf.formData.amap.straightDistance"
+                :min-fraction-digits="1"
+                :max-fraction-digits="1"
+                :max="1000"
+                :min="0"
+                :step="1"
+                fluid
+              />
+              <span>km</span>
+            </div>
+          </label>
+          <label class="address-limit-row" :title="formInfoData.amap.drivingDistance['data-help']">
+            <span>{{ formInfoData.amap.drivingDistance.label }}</span>
+            <div class="prime-input-unit">
+              <InputNumber
+                v-model="conf.formData.amap.drivingDistance"
+                :min-fraction-digits="1"
+                :max-fraction-digits="1"
+                :max="1000"
+                :min="0"
+                :step="1"
+                fluid
+              />
+              <span>km</span>
+            </div>
+          </label>
+          <label class="address-limit-row" :title="formInfoData.amap.drivingDuration['data-help']">
+            <span>{{ formInfoData.amap.drivingDuration.label }}</span>
+            <div class="prime-input-unit">
+              <InputNumber
+                v-model="conf.formData.amap.drivingDuration"
+                :min-fraction-digits="0"
+                :max-fraction-digits="2"
+                :max="1440"
+                :min="0"
+                :step="30"
+                fluid
+              />
+              <span>分钟</span>
+            </div>
+          </label>
+          <label class="address-limit-row" :title="formInfoData.amap.walkingDistance['data-help']">
+            <span>{{ formInfoData.amap.walkingDistance.label }}</span>
+            <div class="prime-input-unit">
+              <InputNumber
+                v-model="conf.formData.amap.walkingDistance"
+                :min-fraction-digits="1"
+                :max-fraction-digits="1"
+                :max="1000"
+                :min="0"
+                :step="1"
+                fluid
+              />
+              <span>km</span>
+            </div>
+          </label>
+          <label class="address-limit-row" :title="formInfoData.amap.walkingDuration['data-help']">
+            <span>{{ formInfoData.amap.walkingDuration.label }}</span>
+            <div class="prime-input-unit">
+              <InputNumber
+                v-model="conf.formData.amap.walkingDuration"
+                :min-fraction-digits="0"
+                :max-fraction-digits="2"
+                :max="1440"
+                :min="0"
+                :step="30"
+                fluid
+              />
+              <span>分钟</span>
+            </div>
+          </label>
+        </div>
+      </section>
 
-      <UFormField v-bind="formInfoData.amap.walkingDistance">
-        <UFieldGroup>
-          <UInputNumber
-            v-model="conf.formData.amap.walkingDistance"
-            :precision="1"
-            :max="1000"
-            :min="0"
-            :step="1"
-          />
-          <UBadge label="km" />
-        </UFieldGroup>
-      </UFormField>
-      <UFormField v-bind="formInfoData.amap.walkingDuration">
-        <UFieldGroup>
-          <UInputNumber
-            v-model="conf.formData.amap.walkingDuration"
-            :precision="2"
-            :max="1440"
-            :min="0"
-            :step="30"
-          />
-          <UBadge label="分钟" />
-        </UFieldGroup>
-      </UFormField>
+      <details class="address-prompt-details">
+        <summary>AI 提示词变量</summary>
+        <div class="address-prompt-vars">
+          <span v-pre>{{ amap.straightDistance }} km</span>
+          <span v-pre>{{ amap.drivingDistance }} km</span>
+          <span v-pre>{{ amap.drivingDuration }} 分钟</span>
+          <span v-pre>{{ amap.walkingDistance }} km</span>
+          <span v-pre>{{ amap.walkingDuration }} 分钟</span>
+        </div>
+      </details>
     </div>
   </div>
 </template>

@@ -11,7 +11,7 @@ const valid = {
   uncertainties: [],
 }
 
-test('AI decision parser only accepts the strict contract', () => {
+void test('AI decision parser only accepts the strict contract', () => {
   assert.deepEqual(parseJobMatchResult(JSON.stringify(valid)), valid)
   assert.deepEqual(parseJobMatchResult(`\`\`\`json\n${JSON.stringify(valid)}\n\`\`\``), valid)
   assert.throws(() => parseJobMatchResult('{"decision":"APPLY"}'), /字段错误/)
@@ -23,7 +23,7 @@ test('AI decision parser only accepts the strict contract', () => {
   assert.throws(() => parseJobMatchResult(JSON.stringify({ ...valid, gaps: [''] })), /gaps/)
 })
 
-test('delivery permission is fail-closed for REJECT and REVIEW', () => {
+void test('delivery permission is fail-closed for REJECT and REVIEW', () => {
   assert.equal(shouldDeliverJob('REJECT', false, false), false)
   assert.equal(shouldDeliverJob('REJECT', true, true), false)
   assert.equal(shouldDeliverJob('REVIEW', false, true), false)

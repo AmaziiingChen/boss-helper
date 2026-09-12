@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 import { defineUnlistedScript } from '#imports'
-import { appearanceConf, useConf } from '@/composables/conf'
+import { useConf } from '@/composables/conf'
 import type { WorkflowData } from '@/composables/useApplying/type'
 import { createLazyObject, isInitialized } from '@/composables/useApplying/type'
 import type { JobData } from '@/composables/useHelper'
@@ -9,7 +9,8 @@ import { HelperContext } from '@/composables/useHelper'
 import type { AlertItem, ConfigAccordionItem } from '@/composables/useHelper/type'
 import { getRootVue, useHookVueData, useHookVueFn } from '@/composables/useVue'
 import { run } from '@/index'
-import { counter, initCounter } from '@/message'
+import { initCounter } from '@/message'
+import { useAppToast } from '@/services/appToast'
 import elmGetter from '@/utils/elmGetter'
 import { logger } from '@/utils/logger'
 
@@ -21,8 +22,6 @@ import type { BossZpDetailData, BossZpJobItemData } from './types'
 function removeAd() {
   // 新职位发布时通知我
   void elmGetter.rm('.job-list-wrapper .subscribe-weixin-wrapper')
-  // 侧栏
-  void elmGetter.rm('.job-side-wrapper')
   // 侧边悬浮框
   void elmGetter.rm('.side-bar-box')
   // 搜索栏登录框
@@ -125,6 +124,7 @@ function convertBossZpJobItemToJobData(item: BossZpJobItemData): JobData {
 
 export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, BossWorkflowState> {
   private static instance: HTMLElement | null = null
+  private legacyBindingsPromise: Promise<void> | null = null
   label = 'Boss直聘'
   key = 'boss'
 
@@ -134,7 +134,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
   _pageChange = (_v: number) => {
     throw new Error('pageChange is undefined')
   }
-  _clickJobCardAction = (_: BossZpJobItemData) => {}
+  _clickJobCardAction: (item: BossZpJobItemData) => void = () => {}
   _jobList: Ref<BossZpJobItemData[]>
   _jobDataMap: Map<string, BoosJobData>
 
@@ -159,7 +159,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
   get uid() {
     // return window?.Cookie.get('bst') // token ?
     if (!window._PAGE.encryptUserId) {
-      useToast().add({
+      useAppToast().add({
         color: 'error',
         title: '未获取到用户ID，可能会出现奇怪bug, 请尝试刷新页面或反馈',
       })
@@ -177,9 +177,26 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
 
   static async new() {
     const ctx = new BossHelperCtx()
-    ctx.rootVue = await getRootVue()
     ctx.workflow = await bossWorkflow(ctx)
     return ctx
+  }
+
+  private async initLegacyBindings() {
+    if (this.legacyBindingsPromise) return this.legacyBindingsPromise
+
+    this.legacyBindingsPromise = (async () => {
+      this.rootVue = await getRootVue()
+      await this._initPage()
+      await this._initPageChange()
+      await this._initJobDetail()
+      await this._initClickJobCardAction()
+      await this._initJobList()
+      this.rootVue.$router.afterHooks.push((to: { path: string }) => {
+        void this.onMount(to.path)
+      })
+    })()
+
+    return this.legacyBindingsPromise
   }
 
   async loadMoreJob(delay: Promise<any>): Promise<boolean> {
@@ -215,7 +232,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
 
   async onMount(path?: string) {
     if (!path) {
-      path = this.rootVue.$route.path
+      path = this.rootVue?.$route?.path ?? location.pathname
     }
 
     try {
@@ -233,35 +250,47 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
     //   const menuElement = document.createElement('boss-helper-menu')
     //   document.body.appendChild(menuElement)
     // }
-    const elm = await elmGetter.get(
-      '.job-search-wrapper,.job-recommend-main,.page-jobs .page-jobs-main',
+    const elm = await elmGetter.get<HTMLElement>(
+      '.job-search-wrapper,.job-recommend-main,.page-jobs .page-jobs-main,.job-list-container,.job-list-wrapper,.job-detail-container',
+      5000,
     )
+    if (!elm) {
+      logger.error('未找到可内联挂载的 BOSS 页面容器')
+      return
+    }
 
     const appElement = document.createElement('boss-helper-job')
+    appElement.style.display = 'block'
     BossHelperCtx.instance = appElement
-    elm.insertBefore(appElement, elm.firstChild)
     removeAd()
 
-    await this._initPage()
-    await this._initPageChange()
-    await this._initJobDetail()
-    await this._initClickJobCardAction()
-    await this._initJobList()
+    const sideBar = document.querySelector<HTMLElement>('.job-side-wrapper')
+    const applySideBarWidth = (width: unknown) => {
+      const nextWidth = Number(width)
+      if (!Number.isFinite(nextWidth)) return
 
-    const contentElm = elm.querySelector<HTMLDivElement>('.recommend-result-inner')
+      appElement.style.width = `${nextWidth}px`
+      if (!sideBar) return
 
-    watch(
-      appearanceConf.value,
-      (v) => {
-        if (!contentElm) return
-        contentElm.style.marginRight =
-          v.leftChat && v.contentOffset != 25 ? `${v.contentOffset}%` : 'auto'
-        contentElm.style.marginLeft =
-          !v.leftChat && v.contentOffset != 25 ? `${v.contentOffset}%` : 'auto'
-      },
-      { immediate: true },
-    )
-    await this.geek.connect()
+      sideBar.style.flex = `0 0 ${nextWidth}px`
+      sideBar.style.width = `${nextWidth}px`
+      sideBar.style.minWidth = `${nextWidth}px`
+      sideBar.style.maxWidth = `${nextWidth}px`
+    }
+    appElement.addEventListener('boss-helper:sidebar-width', (event) => {
+      applySideBarWidth((event as CustomEvent<number>).detail)
+    })
+
+    if (sideBar) {
+      sideBar.prepend(appElement)
+    } else {
+      logger.warn('未找到 BOSS 原生右侧栏，已以内联方式插入主内容区')
+      elm.insertBefore(appElement, elm.firstChild)
+    }
+
+    void this.initLegacyBindings().catch((err) => {
+      logger.warn('BOSS 页面数据绑定未完成，侧栏已加载但暂不能读取岗位列表', err)
+    })
   }
   getConfigItems() {
     const conf = useConf()
@@ -272,10 +301,9 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
             type: 'alert',
             id: 'config-alert-1',
             showIcon: true,
-            title: '首次配置前请先进入帮助模式查看说明',
+            title: '配置只保存在当前浏览器',
             color: 'success',
-            description:
-              '所有配置项均提供说明，获取岗位滚动至约 150 条会自动停止，刷新页面或修改求职期望后可重新获取；如遇 Bug 或帮助内容不清晰，欢迎反馈并提出改进建议。',
+            description: '处理任务运行时会锁定关键筛选项；修改后需要手动保存才会生效。',
           },
         ],
         [
@@ -284,16 +312,8 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
             value: 'filter',
             items: [
               {
-                type: 'alert',
-                id: 'filter-config-alert-enable',
-                title: '复选框打钩才会启用，别忘记打钩启用哦。保存也别忘了',
-                description: '排除和包含可点击切换，混合模式适用性过低难以配置不会考虑开发',
-                color: 'success',
-                showIcon: true,
-              },
-              {
                 type: 'div',
-                class: 'grid grid-cols-2 gap-2 mt-2 w-full',
+                class: 'grid grid-cols-1 gap-3 w-full',
 
                 items: [
                   {
@@ -316,28 +336,11 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
                     type: 'select',
                     key: 'jobAddress',
                   },
-                  {
-                    type: 'div',
-                  },
                 ],
               },
               {
                 type: 'div',
-                class: 'flex gap-2 mt-3',
-                items: [
-                  conf.configLevel.intermediate && {
-                    type: 'salaryRange',
-                    key: 'salaryRange',
-                  },
-                  conf.configLevel.intermediate && {
-                    type: 'companySizeRange',
-                    key: 'companySizeRange',
-                  },
-                ],
-              },
-              {
-                type: 'div',
-                class: 'col-span-full flex flex-wrap gap-2 mt-3',
+                class: 'col-span-full grid grid-cols-1 gap-2 mt-3',
                 items: [
                   conf.configLevel.intermediate && {
                     type: 'checkbox',
@@ -368,22 +371,17 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
             ],
           },
           {
-            label: '外观配置',
-            value: 'appearance',
-            items: [{ type: 'appearance', key: 'appearance' }],
-          },
-          conf.configLevel.advanced && {
             label: '地址配置',
             value: 'address',
             items: [{ type: 'address', key: 'address' }],
           },
-          conf.configLevel.intermediate && {
+          {
             label: '延迟配置',
             value: 'delay',
             items: [
               {
                 type: 'div',
-                class: 'grid grid-cols-2 gap-3',
+                class: 'grid grid-cols-1 gap-3',
                 items: [
                   {
                     type: 'inputNumber',
@@ -395,6 +393,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
                     inputNumberProps: {
                       min: 1,
                       max: 99999,
+                      suffix: ' 秒',
                     },
                   },
                   {
@@ -407,6 +406,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
                     inputNumberProps: {
                       min: 1,
                       max: 99999,
+                      suffix: ' 秒',
                     },
                   },
                   {
@@ -419,6 +419,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
                     inputNumberProps: {
                       min: 1,
                       max: 99999,
+                      suffix: ' 秒',
                     },
                   },
                 ],
@@ -447,8 +448,9 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
         reject(new Error('bossZpDetailData获取超时'))
       }, 1000 * 60)
       const interval = setInterval(() => {
-        if (isDetailForJob(this._jobDetail.value, job.rawData.jobitem)) {
-          resolve(this._jobDetail.value)
+        const detail = this._jobDetail.value
+        if (detail && isDetailForJob(detail, job.rawData.jobitem)) {
+          resolve(detail)
           clearInterval(interval)
         }
       }, 100)
@@ -557,27 +559,16 @@ export default defineUnlistedScript(async () => {
   initCounter()
   const bossHelpCtx = await BossHelperCtx.new()
 
-  bossHelpCtx.rootVue.$router.afterHooks.push(
-    (to: {
-      name: string
-      meta: {
-        notLogin: boolean
-        wrapClassName: string
-        scrollBehavior: string
-        hideFooter: boolean
-        headerV2: boolean
-      }
-      path: string
-      hash: string
-      query: {
-        ka: string
-      }
-      params: {}
-      fullPath: string
-    }) => {
-      void bossHelpCtx.onMount(to.path)
-    },
-  )
+  window.addEventListener('message', (event) => {
+    if (
+      event.source !== window ||
+      event.data?.source !== 'boss-helper' ||
+      event.data?.type !== 'open-sidebar'
+    ) {
+      return
+    }
+    void bossHelpCtx.onMount()
+  })
 
   await run(bossHelpCtx)
 })

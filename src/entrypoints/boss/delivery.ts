@@ -162,5 +162,4 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData, BossW
       msg: `AI: ${matchResult.decision}；${matchResult.reason}；投递成功`,
     }
   }), // 投递
-
 )

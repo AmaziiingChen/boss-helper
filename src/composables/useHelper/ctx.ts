@@ -1,4 +1,3 @@
-import type { Toast } from '@nuxt/ui/runtime/composables/useToast.js'
 import { extendRef } from '@vueuse/core'
 import type { Reactive } from 'vue'
 import { ref } from 'vue'
@@ -9,6 +8,8 @@ import type { BossHelperError } from '@/composables/useApplying/deliverError'
 import type { TaskResult, WorkflowData } from '@/composables/useApplying/type'
 import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel'
+import type { AppToastMessage } from '@/services/appToast'
+import { useAppToast } from '@/services/appToast'
 
 import type { Log, JobData, LogData, ConfigAccordionItem, AlertItem } from './type'
 
@@ -33,9 +34,7 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     clear: () => void
     value: Log[]
   }
-  pendingMessages: Ref<string | undefined>
   constructor() {
-    this.pendingMessages = ref()
     this.conf = useConf()
     this.models = useModel()
     this.statistics = useStatistics()
@@ -102,10 +101,10 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
       ) => Promise<any>
         ? O
         : never
-      toast: Partial<Toast>
+      toast: Partial<AppToastMessage>
     },
   ) {
-    const toast = useToast()
+    const toast = useAppToast()
     if (this.conf.formData.notification.value && document.visibilityState !== 'visible') {
       await notification(msg, opt?.notification)
     }

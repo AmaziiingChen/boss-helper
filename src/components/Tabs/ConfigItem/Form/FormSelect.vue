@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import InputChips from 'primevue/inputchips'
+
 const value = defineModel<string[]>('value', { required: true })
 // const options = defineModel<string[]>('options', { required: true })
 
@@ -6,12 +8,11 @@ const delimiter = /,|\s|\||，/
 </script>
 
 <template>
-  <UInputTags
+  <InputChips
     v-model="value"
-    placeholder=""
-    :delimiter="delimiter"
-    addOnTab
-    addOnBlur
-    :duplicate="false"
+    class="filter-rule-input"
+    :separator="delimiter"
+    add-on-blur
+    :allow-duplicate="false"
   />
 </template>

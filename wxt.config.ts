@@ -1,6 +1,5 @@
 import { resolve } from 'path'
 
-import ui from '@nuxt/ui/vite'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 import tailwindShadowDOM from 'vite-plugin-tailwind-shadowdom'
 import { defineConfig } from 'wxt'
@@ -29,85 +28,10 @@ export default defineConfig({
         '@webext-core/storage',
         '@webext-core/messaging',
         '@webext-core/proxy-service',
-        '@nuxt/ui',
-        '@nuxt/icon',
       ],
     },
     plugins: [
       vueJsx(),
-      ui({
-        // autoImport: false,
-        // components: false,
-        colorMode: false,
-        router: false,
-        prose: false,
-        ui: {
-          colors: {
-            primary: 'teal',
-            neutral: 'gray',
-            warning: 'orange',
-            success: 'emerald',
-            error: 'rose',
-          },
-          badge: {
-            defaultVariants: {
-              color: 'neutral',
-              variant: 'subtle',
-            },
-          },
-          alert: {
-            slots: {
-              root: 'px-4 py-2',
-            },
-            defaultVariants: {
-              orientation: 'horizontal',
-            },
-          },
-          button: {
-            slots: {
-              base: 'cursor-pointer',
-            },
-          },
-          tabs: {
-            slots: {
-              trigger: 'cursor-pointer',
-            },
-          },
-          link: {
-            base: 'no-underline hover:underline',
-          },
-          formField: {
-            slots: {
-              // container: 'flex flex-1',
-              // root: 'justify-start items-center',
-            },
-            defaultVariants: {
-              orientation: 'horizontal',
-            },
-          },
-          modal: {
-            slots: {
-              overlay: 'z-200',
-              content: 'z-220',
-              footer: 'justify-end',
-            },
-          },
-          chatMessage: {
-            variants: {
-              side: {
-                right: {
-                  container: 'flex-row-reverse justify-start',
-                },
-              },
-            },
-          },
-          slideover: {
-            slots: {
-              content: 'z-230',
-            },
-          },
-        },
-      }),
       tailwindShadowDOM(),
     ],
   }),
@@ -116,6 +40,9 @@ export default defineConfig({
     default_locale: 'zh_CN',
     name: '__MSG_extName__',
     description: '__MSG_extDescription__',
+    action: {
+      default_title: '打开 Boss Helper',
+    },
     permissions: ['storage', 'notifications'],
     web_accessible_resources: [
       {
