@@ -80,6 +80,10 @@ const automationSections = computed(() =>
           />
         </div>
       </section>
+      <Message severity="info" :closable="false"
+        >采集范围由 BOSS
+        页面搜索和筛选决定；这里的关键词、基础过滤和通勤条件仅用于独立投递。</Message
+      >
       <Message v-if="beforeRecommended" severity="info" :closable="false">
         已将运行频率与基础过滤恢复为推荐值；关键词、地址和投递开关未更改。
         <Button label="撤销" text size="small" @click="undoRecommend" />
@@ -119,7 +123,7 @@ const automationSections = computed(() =>
         <section class="prime-settings-section">
           <div class="prime-section-heading">
             <h2>投递策略</h2>
-            <p>开始处理仅采集、分析与入库，不自动投递。投递需要单独确认。</p>
+            <p>开始采集仅获取详情、分析与入库，不自动投递。投递需要单独确认。</p>
           </div>
           <div class="prime-toggle-row">
             <strong>允许确认投递 REVIEW 岗位</strong>
