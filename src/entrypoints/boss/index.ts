@@ -10,13 +10,14 @@ import type { AlertItem, ConfigAccordionItem } from '@/composables/useHelper/typ
 import { getRootVue, useHookVueData, useHookVueFn } from '@/composables/useVue'
 import { run } from '@/index'
 import { initCounter } from '@/message'
+import { providePageWorkflow } from '@/message/workflowBridge'
 import { useAppToast } from '@/services/appToast'
 import elmGetter from '@/utils/elmGetter'
 import { logger } from '@/utils/logger'
 
 import type { BoosJobData, BossWorkflowState } from './delivery'
-import { bossWorkflow } from './delivery'
-import { isDetailForJob } from './detailGuard'
+import { bossWorkflow, bossDeliveryWorkflow } from './delivery'
+import { applyBossDetail, refreshBossListJob, waitForBossDetail } from './detailState'
 import type { BossZpDetailData, BossZpJobItemData } from './types'
 
 function removeAd() {
@@ -223,11 +224,93 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
     return true
   }
 
-  async start() {
-    if (!this.workflow) {
-      this.workflow = await bossWorkflow(this)
+  private startVersion = 0
+  private starting = false
+  private actionWorkflow: Awaited<ReturnType<typeof bossWorkflow>> | null = null
+
+  override stop() {
+    this.startVersion++
+    this.actionWorkflow?.stop()
+    super.stop()
+  }
+
+  override async retryJob(key: string) {
+    await this.runSingleJob(key, false)
+  }
+
+  override async deliverJob(key: string) {
+    await this.runSingleJob(key, true)
+  }
+
+  private async runSingleJob(key: string, delivery: boolean) {
+    if (this.starting || this.workflowRunning.value) throw new Error('请先等待当前任务结束或暂停')
+    const data = this.jobMaps.get(key)
+    if (!data) throw new Error('当前页面会话中未找到该岗位，请先采集')
+    if (
+      delivery &&
+      this.statistics.todayData.value.success >= this.conf.formData.deliveryLimit.value
+    ) {
+      throw new Error('已达到今日投递上限')
     }
-    await this.workflow.executeAll(this._jobDataMap)
+    this.starting = true
+    this.actionRunning.value = true
+    const version = ++this.startVersion
+    try {
+      const workflow = delivery ? await bossDeliveryWorkflow(this) : await bossWorkflow(this)
+      this.actionWorkflow = workflow
+      if (version !== this.startVersion) return
+      this.currentJob.value = key
+      if (this.workflow) this.workflow.status.value = 'running'
+      workflow.status.value = 'running'
+      await workflow.execute(data)
+      if (delivery && !data.state.stages?.delivery) {
+        const result = this.jobResultMaps.get(key)
+        data.state.stages ??= {}
+        data.state.stages.delivery = {
+          status: result?.status === 'error' ? 'failed' : 'skipped',
+          message: result?.reason ?? result?.msg,
+          attempts: 0,
+          finishedAt: Date.now(),
+        }
+      }
+    } finally {
+      if (this.workflow) {
+        this.workflow.status.value =
+          this.actionWorkflow?.status.value === 'error'
+            ? 'error'
+            : version !== this.startVersion
+              ? 'stop'
+              : 'pending'
+        this.workflow.errorMessage.value = this.actionWorkflow?.errorMessage.value ?? null
+      }
+      this.actionWorkflow = null
+      this.actionRunning.value = false
+      this.starting = false
+    }
+  }
+
+  async start() {
+    if (this.starting) return
+    if (this.workflowRunning.value) return
+    this.starting = true
+    const version = ++this.startVersion
+    try {
+      if (this.workflow) this.workflow.status.value = 'running'
+      await this.initLegacyBindings()
+      if (version !== this.startVersion) return
+      if (!this.workflow) {
+        this.workflow = await bossWorkflow(this)
+      }
+      await this.workflow.executeAll(this._jobDataMap)
+    } catch (error) {
+      if (this.workflow) {
+        this.workflow.status.value = 'error'
+        this.workflow.errorMessage.value = error instanceof Error ? error.message : String(error)
+      }
+      throw error
+    } finally {
+      this.starting = false
+    }
   }
 
   async onMount(path?: string) {
@@ -431,52 +514,19 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
     })
   }
   override async onJobCardClick(key: string) {
-    // const detail = await requestDetail({
-    //   securityId: job.rawData.jobitem.securityId,
-    //   lid: job.rawData.jobitem.encryptJobId,
-    // }).then((r) => r.zpData)
     const job = this.jobMaps.get(key)
     if (!job) {
       throw new Error('未找到job数据')
     }
     if (isInitialized(job.rawData.detail)) {
+      applyBossDetail(job.jobData, job.rawData.detail)
       return
     }
     this._clickJobCardAction(job.rawData.jobitem)
-    const detail = await new Promise<BossZpDetailData>((resolve, reject) => {
-      setTimeout(() => {
-        reject(new Error('bossZpDetailData获取超时'))
-      }, 1000 * 60)
-      const interval = setInterval(() => {
-        const detail = this._jobDetail.value
-        if (detail && isDetailForJob(detail, job.rawData.jobitem)) {
-          resolve(detail)
-          clearInterval(interval)
-        }
-      }, 100)
-    })
+    const detail = await waitForBossDetail(() => this._jobDetail.value, job.rawData.jobitem)
 
     job.rawData.detail = detail
-    const targetJob = job.jobData
-    targetJob.activeTime = detail.brandComInfo.activeTime
-    targetJob.activeTimeStr = detail.bossInfo.activeTimeDesc
-    targetJob.jobDescription = detail.jobInfo.postDescription
-    targetJob.city = detail.jobInfo.locationName
-    targetJob.address = detail.jobInfo.address
-    targetJob.addressCoords = [detail.jobInfo.longitude, detail.jobInfo.latitude]
-
-    targetJob.boss = {
-      ...targetJob.boss,
-      isOnline: detail.bossInfo.bossOnline,
-      isCertificated: detail.bossInfo.certificated,
-    }
-
-    targetJob.brand = {
-      ...targetJob.brand,
-      labels: detail.brandComInfo.labels,
-      introduce: detail.brandComInfo.introduce,
-      stageName: detail.brandComInfo.stageName,
-    }
+    applyBossDetail(job.jobData, detail)
     this.jobMaps.set(key, job)
   }
   async _initJobList() {
@@ -486,30 +536,22 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
       this._jobList,
       (v) => {
         this.jobList.value = v.map((item) => {
-          const job = convertBossZpJobItemToJobData(item)
-
-          let jobData = this._jobDataMap.get(job.key)
-          if (jobData) {
-            jobData = {
-              ...jobData,
+          const listed = convertBossZpJobItemToJobData(item)
+          const previous = this.jobMaps.get(listed.key)
+          const rawData = previous?.rawData ??
+            this._jobDataMap.get(listed.key) ?? {
               jobitem: item,
+              detail: createLazyObject<BossZpDetailData>('岗位详情获取'),
             }
-          } else {
-            jobData = {
-              jobitem: item,
-              detail: createLazyObject('岗位详情获取'),
-            }
-          }
-          this._jobDataMap.set(job.key, jobData)
-
+          rawData.jobitem = item
+          const job = refreshBossListJob(
+            previous?.jobData,
+            listed,
+            isInitialized(rawData.detail) ? rawData.detail : undefined,
+          )
+          this._jobDataMap.set(job.key, rawData)
+          this.jobMaps.set(job.key, previous ?? { jobData: job, rawData, state: {} })
           return job
-        })
-        this.jobList.value.forEach((job) => {
-          this.jobMaps.set(job.key, {
-            jobData: job,
-            rawData: this._jobDataMap.get(job.key)!,
-            state: {},
-          })
         })
       },
     )()
@@ -556,8 +598,10 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
 }
 
 export default defineUnlistedScript(async () => {
-  initCounter()
+  const script = document.currentScript as HTMLScriptElement
+  initCounter(script)
   const bossHelpCtx = await BossHelperCtx.new()
+  providePageWorkflow(script, bossHelpCtx)
 
   window.addEventListener('message', (event) => {
     if (

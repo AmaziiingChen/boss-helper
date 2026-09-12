@@ -1,5 +1,5 @@
 import { reactiveComputed, watchThrottled } from '@vueuse/core'
-import { reactive, ref, toRaw } from 'vue'
+import { reactive, ref } from 'vue'
 
 import { counter } from '@/message'
 import { useAppToast } from '@/services/appToast'
@@ -35,7 +35,7 @@ const formDataKey = () => {
 watchThrottled(
   formData,
   (v) => {
-    logger.debug('formData改变', toRaw(v))
+    logger.debug('formData改变', { version: v.version })
   },
   { throttle: 2000 },
 )

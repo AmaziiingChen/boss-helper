@@ -79,7 +79,7 @@ export async function upsertJobToFeishu(
   config: FeishuConfig,
   snapshot: FeishuJobSnapshot,
 ): Promise<{ recordId: string; created: boolean }> {
-  validateConfig(config)
+  validateFeishuConfig(config)
   const token = await getTenantAccessToken(config)
   const recordsUrl = `${apiBase}/bitable/v1/apps/${encodeURIComponent(config.appToken)}/tables/${encodeURIComponent(config.tableId)}/records`
   const jobUrl = formatUrlField(job.link, job.jobName)
@@ -318,7 +318,7 @@ function normalizeFeishuError(error: unknown): Error {
   return error instanceof Error ? error : new Error(message)
 }
 
-function validateConfig(config: FeishuConfig) {
+export function validateFeishuConfig(config: FeishuConfig) {
   if (!config.appId.trim()) throw new Error('飞书 App ID 不能为空')
   if (!config.appSecret.trim()) throw new Error('飞书 App Secret 不能为空')
   if (!config.appToken.trim()) throw new Error('飞书 app_token 不能为空')

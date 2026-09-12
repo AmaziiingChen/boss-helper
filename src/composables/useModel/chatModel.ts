@@ -1,12 +1,11 @@
-import type { OpenAIProvider } from '@ai-sdk/openai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { Output, ToolLoopAgent } from 'ai'
 import type { ModelMessage } from 'ai'
 
 import type { FormDataAi } from '@/types/formData'
-import { renderTemplate } from '@/utils/ai'
 
 import type { ModelConf } from '.'
+import { renderTemplate } from '../../utils/ai'
 import type { WorkflowData } from '../useApplying/type'
 import type { HelperContext } from '../useHelper'
 
@@ -14,10 +13,12 @@ const roles = ['filtering'] as const
 type MessageRole = (typeof roles)[number]
 
 export class ChatModel {
-  providers: Map<string, OpenAIProvider> = new Map()
   agents: Map<MessageRole, [ToolLoopAgent, ModelConf, FormDataAi]> = new Map()
+  ctx: HelperContext<any, any, any>
 
-  constructor(public ctx: HelperContext<any, any, any>) {}
+  constructor(ctx: HelperContext<any, any, any>) {
+    this.ctx = ctx
+  }
 
   createAgent(
     model: FormDataAi,
@@ -30,14 +31,12 @@ export class ChatModel {
     if (!conf || !model.model) {
       return false
     }
-    let provider = this.providers.get(model.model)
-    if (!provider) {
-      provider = createOpenAI({
-        baseURL: conf.data?.base_url,
-        apiKey: conf.data?.api_key,
-      })
-    }
-    this.providers.set(model.model, provider)
+    // Providers are lightweight configuration objects. Recreate on initialization
+    // so editing an existing model's URL or key takes effect on the next run.
+    const provider = createOpenAI({
+      baseURL: conf.data?.base_url,
+      apiKey: conf.data?.api_key,
+    })
 
     const agent = new ToolLoopAgent({
       model: provider.chat(conf.data?.model || 'gpt-4o'),

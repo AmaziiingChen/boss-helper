@@ -9,10 +9,13 @@ import App from '@/App.vue'
 import { HelperKey } from '@/composables/useHelper'
 import { BossHelperCtx } from '@/entrypoints/boss'
 import { initExtensionPageCounter } from '@/message'
+import { connectSidepanelWorkflow } from '@/message/sidepanelWorkflow'
 
 async function mountSidePanel() {
   initExtensionPageCounter()
   const ctx = await BossHelperCtx.new()
+  const disconnect = connectSidepanelWorkflow(ctx, browser)
+  window.addEventListener('pagehide', disconnect, { once: true })
   const app = createApp(App)
   app.use(PrimeVue, {
     theme: {

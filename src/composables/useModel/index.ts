@@ -34,7 +34,7 @@ const modelData = ref<ModelConf[]>([])
 export const useModel = () => {
   async function init() {
     const data = await counter.storageGet<ModelConf[]>(confModelKey, [])
-    logger.debug('ai模型数据', data)
+    logger.debug('ai模型配置已加载', { count: data.length })
     modelData.value = data
   }
 

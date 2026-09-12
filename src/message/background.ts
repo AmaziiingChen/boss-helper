@@ -47,14 +47,16 @@ export class BackgroundCounter {
 interface MessageMeta {
   url: string
   injector: 'content' | 'popup'
+  tabId?: number
 }
 
 export class ProvideBackgroundAdapter implements Adapter<MessageMeta> {
   sendMessage: SendMessage<MessageMeta> = async (message) => {
     switch (message.meta.injector) {
       case 'content': {
-        const tabs = await browser.tabs.query({ url: message.meta.url })
-        void tabs.map((tab) => browser.tabs.sendMessage(tab.id!, message))
+        if (message.meta.tabId !== undefined) {
+          await browser.tabs.sendMessage(message.meta.tabId, message)
+        }
         break
       }
       case 'popup': {
@@ -69,7 +71,10 @@ export class ProvideBackgroundAdapter implements Adapter<MessageMeta> {
     }
   }
   onMessage: OnMessage<MessageMeta> = (callback) => {
-    const handler = (message?: Partial<Message<MessageMeta>>) => {
+    const handler = (
+      message: Partial<Message<MessageMeta>> | undefined,
+      sender: Browser.runtime.MessageSender,
+    ) => {
       if (!message?.meta) {
         return callback(message)
       }
@@ -77,7 +82,8 @@ export class ProvideBackgroundAdapter implements Adapter<MessageMeta> {
         ...message,
         meta: {
           ...message.meta,
-          injector: message?.sender?.name as MessageMeta['injector'],
+          injector: sender.tab ? 'content' : 'popup',
+          tabId: sender.tab?.id,
         },
       })
     }

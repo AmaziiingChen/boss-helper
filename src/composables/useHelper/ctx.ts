@@ -10,6 +10,8 @@ import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel'
 import type { AppToastMessage } from '@/services/appToast'
 import { useAppToast } from '@/services/appToast'
+import { summarizeCollection } from '@/services/collectionStages'
+import type { CollectionState } from '@/services/collectionStages'
 
 import type { Log, JobData, LogData, ConfigAccordionItem, AlertItem } from './type'
 
@@ -20,7 +22,13 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
 
   chatModel: ChatModel
   workflow: DeliveryWorkflow<C, T, S> | null = null
-  workflowRunning = computed(() => this.workflow?.status.value === 'running')
+  actionRunning = ref(false)
+  workflowRunning = computed(
+    () => this.actionRunning.value || this.workflow?.status.value === 'running',
+  )
+  collectionSummary = computed(() =>
+    summarizeCollection([...this.jobMaps.values()].map((data) => data.state as CollectionState)),
+  )
   jobResultMaps: Reactive<Map<string, TaskResult>>
 
   abstract jobList: Ref<JobData[]>
@@ -77,6 +85,12 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   abstract getConfigItems(): ComputedRef<[AlertItem[], (ConfigAccordionItem | false)[]]>
 
   abstract start(): Promise<void>
+  async retryJob(_key: string): Promise<void> {
+    throw new Error('当前来源不支持重试单个岗位')
+  }
+  async deliverJob(_key: string): Promise<void> {
+    throw new Error('当前来源不支持独立投递')
+  }
   abstract get uid(): string
   abstract get userInfo(): {
     id: string
