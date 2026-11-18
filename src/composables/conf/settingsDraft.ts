@@ -8,11 +8,13 @@ import { defaultFormData, saveSettingsPatch, settingsConfKey, useConf } from './
 export function useSettingsDraft(scope: 'ai' | 'feishu' | 'resume' | 'automation') {
   const source = useConf()
   const helper = useHelper()
-  const dedicated = ['aiFiltering', 'feishu', 'resumeMarkdown']
+  const dedicated = ['aiFiltering', 'feishu', 'resumeMarkdown', 'candidateProfile']
   const keys =
     scope === 'automation'
       ? Object.keys(defaultFormData).filter((key) => !dedicated.includes(key))
-      : [scope === 'ai' ? 'aiFiltering' : scope === 'resume' ? 'resumeMarkdown' : 'feishu']
+      : scope === 'resume'
+        ? ['resumeMarkdown', 'candidateProfile']
+        : [scope === 'ai' ? 'aiFiltering' : 'feishu']
   const { draft, dirty, saving, error, save, reset, pick } = createDraftState(
     source.formData,
     keys,

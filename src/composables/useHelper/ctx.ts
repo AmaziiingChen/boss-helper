@@ -12,6 +12,7 @@ import type { AppToastMessage } from '@/services/appToast'
 import { useAppToast } from '@/services/appToast'
 import { summarizeCollection } from '@/services/collectionStages'
 import type { CollectionState } from '@/services/collectionStages'
+import type { GreetingSendRequest } from '@/services/greetingSend'
 
 import type { Log, JobData, LogData, ConfigAccordionItem, AlertItem } from './type'
 
@@ -23,6 +24,9 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   chatModel: ChatModel
   workflow: DeliveryWorkflow<C, T, S> | null = null
   actionRunning = ref(false)
+  pageConnection = ref<
+    'connecting' | 'reading' | 'ready' | 'reconnecting' | 'empty' | 'error' | 'unavailable'
+  >('ready')
   workflowRunning = computed(
     () => this.actionRunning.value || this.workflow?.status.value === 'running',
   )
@@ -88,8 +92,14 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   async retryJob(_key: string): Promise<void> {
     throw new Error('当前来源不支持重试单个岗位')
   }
+  async refreshProgress(_key: string): Promise<void> {
+    throw new Error('当前来源不支持回读求职进度')
+  }
   async deliverJob(_key: string): Promise<void> {
     throw new Error('当前来源不支持独立投递')
+  }
+  async sendGreeting(_key: string, _request: GreetingSendRequest): Promise<void> {
+    throw new Error('当前来源不支持发送招呼语')
   }
   abstract get uid(): string
   abstract get userInfo(): {

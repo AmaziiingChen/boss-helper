@@ -1,3 +1,4 @@
+import { candidateContext } from '@/services/candidateProfile'
 import { parseJobMatchResult } from '@/services/jobMatching'
 import type { HelperContext } from '~/composables/useHelper'
 
@@ -318,17 +319,23 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       if (!ctx.helper.conf.formData.resumeMarkdown.content.trim()) {
         throw new HelperConfigError('resumeMarkdown.content', '请先导入或填写 Markdown 简历')
       }
-      if (
-        !ctx.helper.chatModel.createAgent(ctx.helper.conf.formData.aiFiltering, 'filtering', {
-          json: true,
-        })
-      ) {
+      const resumeMarkdown = ctx.helper.conf.formData.resumeMarkdown.content
+      const context = candidateContext(ctx.helper.conf.formData.candidateProfile?.content)
+      const matchingConfig = {
+        ...ctx.helper.conf.formData.aiFiltering,
+        prompt: [
+          ...ctx.helper.conf.formData.aiFiltering.prompt.map((message) => ({ ...message })),
+          { role: 'user' as const, content: '{{ candidateContext }}' },
+        ],
+      }
+      if (!ctx.helper.chatModel.createAgent(matchingConfig, 'filtering', { json: true })) {
         throw new HelperConfigError('aiFiltering.model', 'AI筛选模型未配置')
       }
       return async (ctx, data) => {
         const chatData = {
           ...data,
-          resumeMarkdown: ctx.helper.conf.formData.resumeMarkdown.content,
+          resumeMarkdown,
+          candidateContext: context,
         }
         const output = await ctx.helper.chatModel.chat('filtering', chatData).then((r) => r.text)
         const result = parseJobMatchResult(output)

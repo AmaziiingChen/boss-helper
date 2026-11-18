@@ -2,6 +2,7 @@ import type { CollectionState, StageKey, StageStatus } from '../services/collect
 
 export type CollectionViewState = CollectionState & {
   delivered?: boolean
+  skippedExisting?: boolean
   feishuRecordId?: string
   aiMatchResult?: { decision: 'APPLY' | 'REVIEW' | 'REJECT' }
 }
@@ -61,9 +62,13 @@ export function stageView(key: StageKey, state?: CollectionViewState) {
       : status === 'failed'
         ? failedNames[key]
         : status === 'skipped'
-          ? key === 'delivery'
-            ? '按规则跳过'
-            : '未启用'
+          ? state?.skippedExisting && key !== 'delivery'
+            ? key === 'storage'
+              ? '飞书已有'
+              : '已跳过'
+            : key === 'delivery'
+              ? '按规则跳过'
+              : '未启用'
           : status === 'unknown'
             ? key === 'delivery'
               ? '发送结果待核实'
@@ -88,7 +93,22 @@ export function failedCollectionStages(state?: CollectionViewState) {
   return collectionKeys.filter((key) => state?.stages?.[key]?.status === 'failed')
 }
 
+/** Progress is relative to discovered jobs, not a promise about future pages. */
+export function collectionProgress(states: CollectionViewState[]) {
+  const completed = states.filter((state) =>
+    collectionKeys.every((key) =>
+      ['succeeded', 'skipped'].includes(state.stages?.[key]?.status ?? 'pending'),
+    ),
+  ).length
+  return {
+    completed,
+    total: states.length,
+    value: states.length ? Math.floor((completed / states.length) * 100) : 0,
+  }
+}
+
 export function collectionLabel(state?: CollectionViewState) {
+  if (state?.skippedExisting) return '飞书已有，已跳过'
   const failed = failedCollectionStages(state)
   if (failed.length) return failed.map((key) => failedNames[key]).join('、')
   if (collectionKeys.some((key) => state?.stages?.[key]?.status === 'running')) return '采集中'

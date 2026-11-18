@@ -4,7 +4,16 @@ import type { JobData, Log } from '@/composables/useHelper/type'
 import type { BossWorkflowState } from '@/entrypoints/boss/delivery'
 
 export const workflowChannel = 'boss-helper-workflow'
-export const workflowCommands = ['snapshot', 'start', 'stop', 'reset', 'retry', 'deliver'] as const
+export const workflowCommands = [
+  'snapshot',
+  'start',
+  'stop',
+  'reset',
+  'retry',
+  'deliver',
+  'sendGreeting',
+  'refreshProgress',
+] as const
 export type WorkflowCommand = (typeof workflowCommands)[number]
 export interface WorkflowSnapshot {
   jobs: JobData[]
@@ -43,10 +52,56 @@ export function providePageWorkflow(script: HTMLScriptElement, ctx: HelperContex
   let starting = false
   let startVersion = 0
   script.addEventListener(`${workflowChannel}:request`, (event) => {
-    const { id, command, key, confirmed } = JSON.parse((event as CustomEvent<string>).detail)
+    const { id, command, key, confirmed, greeting } = JSON.parse(
+      (event as CustomEvent<string>).detail,
+    )
     if (!workflowCommands.includes(command)) return
     void (async () => {
       try {
+        if (command === 'snapshot' && !ctx.jobList.value.length) {
+          // Reopening/polling can recover a failed binding without delaying snapshots.
+          void ctx.onMount?.().catch(() => {})
+        }
+        if (command === 'refreshProgress') {
+          if (starting || ctx.workflowRunning.value)
+            throw new Error('请先暂停采集或等待当前操作结束')
+          if (typeof key !== 'string' || !ctx.jobMaps.has(key))
+            throw new Error('请指定已采集的岗位')
+          starting = true
+          if (ctx.workflow) ctx.workflow.errorMessage.value = null
+          void ctx
+            .refreshProgress(key)
+            .catch((error) => {
+              if (ctx.workflow) ctx.workflow.errorMessage.value = String(error)
+            })
+            .finally(() => {
+              starting = false
+            })
+        }
+        if (command === 'sendGreeting') {
+          if (starting || ctx.workflowRunning.value)
+            throw new Error('请先暂停采集或等待当前操作结束')
+          if (
+            typeof key !== 'string' ||
+            !ctx.jobMaps.has(key) ||
+            greeting?.confirmed !== true ||
+            greeting?.defaultGreetingDisabled !== true ||
+            typeof greeting?.text !== 'string' ||
+            !greeting.text.trim() ||
+            Array.from(greeting.text).length > 500
+          )
+            throw new Error('请核对该岗位、招呼语和默认招呼语设置后明确确认')
+          starting = true
+          if (ctx.workflow) ctx.workflow.errorMessage.value = null
+          void ctx
+            .sendGreeting(key, greeting)
+            .catch((error) => {
+              if (ctx.workflow) ctx.workflow.errorMessage.value = String(error)
+            })
+            .finally(() => {
+              starting = false
+            })
+        }
         if (command === 'deliver' && confirmed !== true)
           throw new Error('投递需要针对该岗位明确确认')
         if (

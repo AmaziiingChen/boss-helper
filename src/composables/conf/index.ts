@@ -3,6 +3,7 @@ import { getCurrentInstance, inject, reactive, ref } from 'vue'
 
 import { counter } from '@/message'
 import { useAppToast } from '@/services/appToast'
+import { upgradeMatchingPrompt } from '@/services/jobMatching'
 import type { ConfigLevel, FormData } from '@/types/formData'
 import deepmerge, { jsonClone } from '@/utils/deepmerge'
 import { exportJson, importJson } from '@/utils/jsonImportExport'
@@ -149,6 +150,7 @@ const createConf = () => {
       let from = await counter.storageGet<Partial<FormData>>(formDataKey(), {})
       from = (await formDataHandler(from)) ?? from
       const data = deepmerge<FormData>(defaultFormData, from)
+      data.aiFiltering.prompt = upgradeMatchingPrompt(data.aiFiltering.prompt)
       Object.assign(formData, data)
     } catch (e) {
       toast.add({

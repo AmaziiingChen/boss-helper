@@ -12,35 +12,24 @@ import { run } from '@/index'
 import { initCounter } from '@/message'
 import { providePageWorkflow } from '@/message/workflowBridge'
 import { useAppToast } from '@/services/appToast'
-import elmGetter from '@/utils/elmGetter'
+import { collectionInputKeys, synchronizeCollectionInputs } from '@/services/collectionInputs'
+import type { CollectionInputKeys } from '@/services/collectionInputs'
+import { readJobFromFeishu } from '@/services/feishu'
+import type { GreetingSendRequest } from '@/services/greetingSend'
+import { shouldDeliverJob } from '@/services/jobMatching'
 import { logger } from '@/utils/logger'
 
 import type { BoosJobData, BossWorkflowState } from './delivery'
 import { bossWorkflow, bossDeliveryWorkflow } from './delivery'
-import { applyBossDetail, refreshBossListJob, waitForBossDetail } from './detailState'
+import {
+  applyBossDetail,
+  bossAccessBlockReason,
+  refreshBossListJob,
+  waitForBossDetail,
+  waitForBossListChange,
+} from './detailState'
+import { sendGreetingForJob } from './greetingSend'
 import type { BossZpDetailData, BossZpJobItemData } from './types'
-
-function removeAd() {
-  // 新职位发布时通知我
-  void elmGetter.rm('.job-list-wrapper .subscribe-weixin-wrapper')
-  // 侧边悬浮框
-  void elmGetter.rm('.side-bar-box')
-  // 搜索栏登录框
-  void elmGetter.rm('.go-login-btn')
-  // 底部页脚
-  // elmGetter.rm("#footer-wrapper");
-
-  // 新版: 微信扫码
-  void elmGetter.rm('.c-subscribe-weixin')
-  // 新版: 求职工具
-  void elmGetter.rm('.c-job-tools.job-tools')
-  // 新版: 热门职位
-  void elmGetter.rm('.c-hot-link.hot-link')
-  // 新版: 面包屑
-  void elmGetter.rm('.c-breadcrumb')
-  // 新版: 职位详情页的引导(想要什么工作)
-  void elmGetter.rm('.job-detail-container .job-detail-guide-cont')
-}
 
 const initChange = useHookVueFn('#wrap .page-job-wrapper', 'pageChangeAction')
 const initSearch = useHookVueFn('#wrap .page-job-wrapper,.job-recommend-main,.page-jobs-main', [
@@ -124,8 +113,9 @@ function convertBossZpJobItemToJobData(item: BossZpJobItemData): JobData {
 }
 
 export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, BossWorkflowState> {
-  private static instance: HTMLElement | null = null
   private legacyBindingsPromise: Promise<void> | null = null
+  private nextBindingRetryAt = 0
+  private activeInputKeys?: CollectionInputKeys
   label = 'Boss直聘'
   key = 'boss'
 
@@ -192,21 +182,44 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
       await this._initJobDetail()
       await this._initClickJobCardAction()
       await this._initJobList()
-      this.rootVue.$router.afterHooks.push((to: { path: string }) => {
-        void this.onMount(to.path)
-      })
-    })()
+    })().catch((error) => {
+      this.legacyBindingsPromise = null
+      throw error
+    })
 
     return this.legacyBindingsPromise
   }
 
+  private async prepareCollectionInputs() {
+    const model = this.models.modelData.value.find(
+      (item) => item.key === this.conf.formData.aiFiltering.model,
+    )
+    const keys = await collectionInputKeys(this.conf.formData, model)
+    this.activeInputKeys = keys
+    for (const [key, data] of this.jobMaps) {
+      if (synchronizeCollectionInputs(data.state, keys)) this.jobResultMaps.delete(key)
+    }
+  }
+
   async loadMoreJob(delay: Promise<any>): Promise<boolean> {
     try {
+      if (this._pageHasMore.value === false) return false
+      const previous = this._jobList.value.slice()
       const oldLen = this._jobList.value.length
       const oldFirstJobId = this._jobList.value[0]?.encryptJobId ?? ''
 
+      const blocked = bossAccessBlockReason(document.body?.innerText ?? '')
+      if (blocked) throw new Error(blocked)
       this._pageChange(this._page.value.page + 1)
       await delay
+      if (this.workflow?.mode === 'collection') {
+        return await waitForBossListChange(
+          () => this._jobList.value,
+          previous,
+          () => this.workflow?.status.value === 'stop',
+          () => bossAccessBlockReason(document.body?.innerText ?? ''),
+        )
+      }
       const currentFirstJobId = this._jobList.value[0]?.encryptJobId ?? ''
       if (
         (location.href.includes('/web/geek/job-recommend') ||
@@ -219,7 +232,7 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
       }
     } catch (err) {
       logger.error('翻页: 下一页错误', err)
-      return false
+      throw err
     }
     return true
   }
@@ -236,6 +249,25 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
 
   override async retryJob(key: string) {
     await this.runSingleJob(key, false)
+  }
+
+  override async refreshProgress(key: string) {
+    if (this.starting || this.workflowRunning.value)
+      throw new Error('请先暂停采集或等待当前操作结束')
+    const data = this.jobMaps.get(key)
+    if (!data) throw new Error('当前会话中未找到该岗位')
+    this.actionRunning.value = true
+    try {
+      await this.conf.confInit()
+      const config = this.conf.formData.feishu
+      if (!config.enable) throw new Error('请先启用并保存飞书配置')
+      const record = await readJobFromFeishu(data.rawData.jobitem.encryptJobId, config)
+      data.state.feishuRecord = record
+      data.state.feishuRecordId = record?.recordId
+      if (!record) throw new Error('飞书未找到该岗位，请先完成入库')
+    } finally {
+      this.actionRunning.value = false
+    }
   }
 
   override async deliverJob(key: string) {
@@ -256,9 +288,11 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
     this.actionRunning.value = true
     const version = ++this.startVersion
     try {
-      const workflow = delivery ? await bossDeliveryWorkflow(this) : await bossWorkflow(this)
+      await this.prepareCollectionInputs()
+      const workflow = delivery ? await bossDeliveryWorkflow(this) : await bossWorkflow(this, false)
       this.actionWorkflow = workflow
-      if (version !== this.startVersion) return
+      const ready = await workflow.rebuild()
+      if (version !== this.startVersion || !ready) return
       this.currentJob.value = key
       if (this.workflow) this.workflow.status.value = 'running'
       workflow.status.value = 'running'
@@ -298,6 +332,8 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
       if (this.workflow) this.workflow.status.value = 'running'
       await this.initLegacyBindings()
       if (version !== this.startVersion) return
+      await this.prepareCollectionInputs()
+      if (version !== this.startVersion) return
       if (!this.workflow) {
         this.workflow = await bossWorkflow(this)
       }
@@ -313,67 +349,45 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
     }
   }
 
-  async onMount(path?: string) {
-    if (!path) {
-      path = this.rootVue?.$route?.path ?? location.pathname
-    }
-
+  override async sendGreeting(key: string, request: GreetingSendRequest) {
+    if (this.starting || this.workflowRunning.value)
+      throw new Error('请先暂停采集或等待当前操作结束')
+    const data = this.jobMaps.get(key)
+    if (!data || !data.jobData.jobDescription?.trim()) throw new Error('请先采集完整岗位详情')
+    this.actionRunning.value = true
     try {
-      if (await elmGetter.get('boss-helper-job', 3000)) {
-        return
+      await this.conf.confInit()
+      await this.models.initModel()
+      await this.prepareCollectionInputs()
+      const match = data.state.aiMatchResult
+      if (!match || !shouldDeliverJob(match.decision, true, this.conf.formData.deliverReview.value))
+        throw new Error('该岗位尚未通过现有 AI 投递规则，请先完成分析并核对 REVIEW 设置')
+      if (this.conf.formData.feishu.enable) {
+        const record = await readJobFromFeishu(
+          data.rawData.jobitem.encryptJobId,
+          this.conf.formData.feishu,
+        )
+        data.state.feishuRecord = record
+        if (!record || record.applicationProgress !== '待处理')
+          throw new Error('飞书未找到唯一的“待处理”岗位记录，未发送')
       }
-    } catch {}
-
-    if (BossHelperCtx.instance) {
-      BossHelperCtx.instance.remove()
-      BossHelperCtx.instance = null
+      await sendGreetingForJob(data.rawData.jobitem, data.jobData, request, (record) => {
+        data.state.greetingSend = record
+      })
+    } finally {
+      this.actionRunning.value = false
     }
-    // TODO: 移除menu, 可能导致nuxtui实例冲突
-    // if (!document.querySelector('boss-helper-menu')) {
-    //   const menuElement = document.createElement('boss-helper-menu')
-    //   document.body.appendChild(menuElement)
-    // }
-    const elm = await elmGetter.get<HTMLElement>(
-      '.job-search-wrapper,.job-recommend-main,.page-jobs .page-jobs-main,.job-list-container,.job-list-wrapper,.job-detail-container',
-      5000,
-    )
-    if (!elm) {
-      logger.error('未找到可内联挂载的 BOSS 页面容器')
-      return
+  }
+
+  async onMount() {
+    // Native side panel owns the UI. Never insert a workspace into the BOSS page.
+    if (Date.now() < this.nextBindingRetryAt) return
+    try {
+      await this.initLegacyBindings()
+    } catch (err) {
+      this.nextBindingRetryAt = Date.now() + 5000
+      logger.warn('BOSS 页面数据绑定未完成，暂不能读取岗位列表', err)
     }
-
-    const appElement = document.createElement('boss-helper-job')
-    appElement.style.display = 'block'
-    BossHelperCtx.instance = appElement
-    removeAd()
-
-    const sideBar = document.querySelector<HTMLElement>('.job-side-wrapper')
-    const applySideBarWidth = (width: unknown) => {
-      const nextWidth = Number(width)
-      if (!Number.isFinite(nextWidth)) return
-
-      appElement.style.width = `${nextWidth}px`
-      if (!sideBar) return
-
-      sideBar.style.flex = `0 0 ${nextWidth}px`
-      sideBar.style.width = `${nextWidth}px`
-      sideBar.style.minWidth = `${nextWidth}px`
-      sideBar.style.maxWidth = `${nextWidth}px`
-    }
-    appElement.addEventListener('boss-helper:sidebar-width', (event) => {
-      applySideBarWidth((event as CustomEvent<number>).detail)
-    })
-
-    if (sideBar) {
-      sideBar.prepend(appElement)
-    } else {
-      logger.warn('未找到 BOSS 原生右侧栏，已以内联方式插入主内容区')
-      elm.insertBefore(appElement, elm.firstChild)
-    }
-
-    void this.initLegacyBindings().catch((err) => {
-      logger.warn('BOSS 页面数据绑定未完成，侧栏已加载但暂不能读取岗位列表', err)
-    })
   }
   getConfigItems() {
     const conf = useConf()
@@ -522,8 +536,14 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
       applyBossDetail(job.jobData, job.rawData.detail)
       return
     }
+    const readBlockReason = () => bossAccessBlockReason(document.body?.innerText ?? '')
+    const blocked = readBlockReason()
+    if (blocked) throw new Error(blocked)
     this._clickJobCardAction(job.rawData.jobitem)
-    const detail = await waitForBossDetail(() => this._jobDetail.value, job.rawData.jobitem)
+    const detail = await waitForBossDetail(() => this._jobDetail.value, job.rawData.jobitem, {
+      isStopped: () => this.workflow?.status.value === 'stop',
+      readBlockReason,
+    })
 
     job.rawData.detail = detail
     applyBossDetail(job.jobData, detail)
@@ -550,7 +570,10 @@ export class BossHelperCtx extends HelperContext<BossHelperCtx, BoosJobData, Bos
             isInitialized(rawData.detail) ? rawData.detail : undefined,
           )
           this._jobDataMap.set(job.key, rawData)
-          this.jobMaps.set(job.key, previous ?? { jobData: job, rawData, state: {} })
+          this.jobMaps.set(
+            job.key,
+            previous ?? { jobData: job, rawData, state: { inputKeys: this.activeInputKeys } },
+          )
           return job
         })
       },

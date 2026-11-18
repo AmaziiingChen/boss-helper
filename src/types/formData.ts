@@ -34,6 +34,7 @@ export interface FormData {
     content: string
     fileName: string
   }
+  candidateProfile: { content: string; fileName: string }
   autoDelivery: FormDataCheckbox
   deliverReview: FormDataCheckbox
   feishu: FeishuConfig

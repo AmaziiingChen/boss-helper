@@ -50,6 +50,7 @@ export default defineContentScript({
             command: message.command,
             key: message.key,
             confirmed: message.confirmed,
+            greeting: message.greeting,
           }),
         }),
       )

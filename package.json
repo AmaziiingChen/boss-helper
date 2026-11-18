@@ -27,17 +27,21 @@
     "fmt:check": "oxfmt --check",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
-    "prepare": "husky"
+    "prepare": "husky",
+    "eval:matching": "node --experimental-strip-types tests/evaluation/run-matching.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.36",
     "@primeuix/themes": "^1",
     "ai": "^7.0.58",
+    "buffer": "6.0.3",
     "comctx": "^1.7.5",
     "devlog-ui": "workspace:*",
     "markdown-it": "^15.0.2",
+    "mqtt": "5.15.2",
     "primeicons": "^7",
     "primevue": "^4",
+    "protobufjs": "8.8.0",
     "quill": "^2",
     "tailwindcss": "^4.2.4",
     "vue": "^3.5.41",

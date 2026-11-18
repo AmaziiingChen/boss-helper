@@ -321,6 +321,7 @@
   min-height: 0;
   max-width: 52rem;
   margin-inline: auto;
+  padding: 0.25rem;
 }
 
 .settings-page-body {
@@ -334,8 +335,23 @@
   overscroll-behavior: contain;
 }
 .prime-settings-stack > .settings-toolbar,
-.prime-settings-stack > .prime-savebar {
+.prime-settings-stack > .settings-page-footer {
   flex: 0 0 auto;
+  padding-inline: 0.25rem;
+}
+
+.prime-settings-stack > .settings-toolbar {
+  min-height: 2.5rem;
+}
+
+.settings-page-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.settings-page-body--editor {
+  overflow: hidden;
 }
 
 .resume-settings {
@@ -343,7 +359,7 @@
   height: 100%;
 }
 
-.resume-settings > .p-editor {
+.resume-settings .settings-page-body > .p-editor {
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
@@ -351,8 +367,8 @@
   overflow: hidden;
 }
 
-.resume-settings > .p-editor .p-editor-content,
-.resume-settings > .p-editor .ql-container {
+.resume-settings .p-editor .p-editor-content,
+.resume-settings .p-editor .ql-container {
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
@@ -360,7 +376,7 @@
   overflow: hidden;
 }
 
-.resume-settings > .p-editor .ql-editor {
+.resume-settings .p-editor .ql-editor {
   min-height: 0;
   flex: 1 1 auto;
   overflow-x: hidden;

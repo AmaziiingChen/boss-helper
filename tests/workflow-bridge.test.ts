@@ -41,6 +41,7 @@ function helper(): any {
     },
     workflowRunning: { value: false },
     actionRunning: { value: false },
+    pageConnection: { value: 'ready' },
     collectionSummary: { value: { total: 1, stages: {} } },
     logs: { value: Array.from({ length: 23 }, (_, index) => ({ message: `日志 ${index}` })) },
     _logs: { value: [] },
@@ -54,13 +55,17 @@ function helper(): any {
   }
 }
 
-function panelHarness(send: (tabId: number, message: any) => Promise<unknown>) {
+function panelHarness(
+  send: (tabId: number, message: any) => Promise<unknown>,
+  now = () => Date.now(),
+) {
   let activeTab = 11
   let queries = 0
   let nextTimer = 0
   const timers = new Map<number, () => void>()
   const notifications: unknown[] = []
   const panel = loadModule('../src/message/sidepanelWorkflow.ts', {
+    Date: { now },
     require: (name: string) => {
       if (name === './workflowBridge') return bridge
       if (name === '@/services/appToast')
@@ -163,14 +168,78 @@ void test('remote errors reach panel status and user commands notify while polli
   const harness = panelHarness(async () => ({ error: '页面未就绪' }))
   try {
     await flush()
-    assert.equal(harness.ctx.workflow.status.value, 'error')
-    assert.equal(harness.ctx.workflow.errorMessage.value, '页面未就绪')
+    assert.equal(harness.ctx.pageConnection.value, 'connecting')
+    assert.equal(harness.ctx.workflow.errorMessage.value, null)
     assert.equal(harness.notifications.length, 0)
     await harness.ctx.start()
+    assert.equal(harness.ctx.workflow.errorMessage.value, '页面未就绪')
     assert.equal(harness.notifications.length, 1)
     assert.equal((harness.notifications[0] as any).title, '页面未就绪')
   } finally {
     harness.dispose()
+  }
+})
+
+void test('connection failures get a grace period and recover without corrupting workflow state', async () => {
+  let now = 0
+  let fail = true
+  const snapshot = bridge.snapshotWorkflow(helper())
+  const h = panelHarness(
+    async () => (fail ? { error: 'not ready' } : { snapshot }),
+    () => now,
+  )
+  const poll = async () => {
+    const [id, callback] = [...h.timers.entries()].at(-1)!
+    h.timers.delete(id)
+    callback()
+    await flush()
+  }
+  try {
+    await flush()
+    assert.equal(h.ctx.pageConnection.value, 'connecting')
+    now = 12001
+    await poll()
+    assert.equal(h.ctx.pageConnection.value, 'error')
+    assert.equal(h.ctx.workflow.errorMessage.value, null)
+    fail = false
+    await poll()
+    assert.equal(h.ctx.pageConnection.value, 'ready')
+    fail = true
+    await poll()
+    assert.equal(h.ctx.pageConnection.value, 'reconnecting')
+    assert.equal(h.ctx.jobList.value.length, 1)
+    assert.equal(h.notifications.length, 0)
+  } finally {
+    h.dispose()
+  }
+})
+
+void test('empty snapshots first show reading, then a neutral empty hint, and recover when jobs arrive', async () => {
+  let now = 0
+  const snapshot = bridge.snapshotWorkflow(helper())
+  snapshot.jobs = []
+  const h = panelHarness(
+    async () => ({ snapshot }),
+    () => now,
+  )
+  const poll = async () => {
+    const [id, callback] = [...h.timers.entries()].at(-1)!
+    h.timers.delete(id)
+    callback()
+    await flush()
+  }
+  try {
+    await flush()
+    assert.equal(h.ctx.pageConnection.value, 'reading')
+    now = 20001
+    await poll()
+    assert.equal(h.ctx.pageConnection.value, 'empty')
+    snapshot.jobs = [{ key: 'new', jobName: '新岗位' }]
+    await poll()
+    assert.equal(h.ctx.pageConnection.value, 'ready')
+    assert.equal(h.ctx.workflow.errorMessage.value, null)
+  } finally {
+    h.dispose()
   }
 })
 
@@ -426,4 +495,52 @@ void test('a running or initializing page operation rejects new start retry and 
   finishInit()
   await initializing
   assert.equal(operations, 1)
+})
+
+void test('greeting bridge requires exact consent, blocks concurrent work and never exposes the text in snapshots', async () => {
+  const ctx = helper()
+  const calls: unknown[] = []
+  let finish!: () => void
+  ctx.sendGreeting = async (key: string, request: unknown) => {
+    calls.push({ key, request })
+    await new Promise<void>((resolve) => {
+      finish = resolve
+    })
+  }
+  const page = pageHarness(ctx)
+  const greeting = { text: '仅此一次的原文', confirmed: true, defaultGreetingDisabled: true }
+  for (const patch of [{ confirmed: false }, { defaultGreetingDisabled: false }, { text: '' }]) {
+    assert.ok(
+      (await page.request('sendGreeting', { key: 'job-1', greeting: { ...greeting, ...patch } }))
+        .error,
+    )
+  }
+  assert.equal(calls.length, 0)
+  const result = await page.request('sendGreeting', { key: 'job-1', greeting })
+  assert.ok(result.snapshot)
+  assert.doesNotMatch(JSON.stringify(result.snapshot), /仅此一次的原文/)
+  assert.equal(calls.length, 1)
+  assert.ok((await page.request('sendGreeting', { key: 'job-1', greeting })).error)
+  assert.ok((await page.request('start')).error)
+  finish()
+  await flush()
+})
+
+void test('panel sends the reviewed greeting only to its pinned BOSS tab', async () => {
+  const calls: any[] = []
+  const harness = panelHarness(async (tabId, message) => {
+    calls.push({ tabId, ...message })
+    return { snapshot: bridge.snapshotWorkflow(helper()) }
+  })
+  try {
+    await flush()
+    harness.changeTab(22)
+    const greeting = { text: '人工审核的原文', confirmed: true, defaultGreetingDisabled: true }
+    await harness.ctx.sendGreeting('job-1', greeting)
+    assert.equal(calls.at(-1).tabId, 11)
+    assert.equal(calls.at(-1).command, 'sendGreeting')
+    assert.deepEqual(plain(calls.at(-1).greeting), greeting)
+  } finally {
+    harness.dispose()
+  }
 })

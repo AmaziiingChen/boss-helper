@@ -1,11 +1,10 @@
 <script lang="ts" setup>
-import Accordion from 'primevue/accordion'
-import AccordionContent from 'primevue/accordioncontent'
-import AccordionHeader from 'primevue/accordionheader'
-import AccordionPanel from 'primevue/accordionpanel'
 import Button from 'primevue/button'
+import Column from 'primevue/column'
+import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
+import ProgressBar from 'primevue/progressbar'
 import Tab from 'primevue/tab'
 import TabList from 'primevue/tablist'
 import TabPanel from 'primevue/tabpanel'
@@ -13,22 +12,23 @@ import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import Timeline from 'primevue/timeline'
-import { computed, ref } from 'vue'
+import ToggleSwitch from 'primevue/toggleswitch'
+import { computed, ref, watch } from 'vue'
 
+import GreetingDraft from '@/components/AI/GreetingDraft.vue'
 import Resume from '@/components/AI/JobMatchingSettings.vue'
 import Ai from '@/components/Tabs/AI.vue'
 import Config from '@/components/Tabs/Config.vue'
 import Feishu from '@/components/Tabs/Feishu.vue'
-import { useConf } from '@/composables/conf'
+import { saveSettingsPatch, useConf } from '@/composables/conf'
 import { useHelper } from '@/composables/useHelper'
 import type { BossWorkflowState } from '@/entrypoints/boss/delivery'
 import {
   collectionKeys,
   collectionLabel,
-  deliveryBlockReason,
+  collectionProgress,
   failedCollectionStages,
   safeStageMessage,
-  stageNames,
   stageView,
 } from '@/utils/collectionView'
 import { hasResumeContent } from '@/utils/workbenchState'
@@ -40,26 +40,74 @@ const conf = useConf()
 const activeView = ref<'workspace' | 'settings'>('workspace')
 const settingsTab = ref('automation')
 const requesting = ref(false)
+const launchRequested = ref(false)
+const cancelling = ref(false)
+const savingAiToggle = ref(false)
 const isRunning = computed(() => !!helper.workflowRunning.value)
-const isBusy = computed(() => isRunning.value || requesting.value)
+const operationActive = computed(
+  () =>
+    isRunning.value ||
+    requesting.value ||
+    launchRequested.value ||
+    [...helper.jobMaps.values()].some((record) =>
+      collectionKeys.some(
+        (key) => (record.state as BossWorkflowState).stages?.[key]?.status === 'running',
+      ),
+    ),
+)
+const isBusy = computed(() => operationActive.value || cancelling.value || savingAiToggle.value)
 const actionError = ref('')
-const actionNotice = ref('')
 const sessionJobs = computed(() => [...helper.jobMaps.values()].map((record) => record.jobData))
 const summary = computed(() => helper.collectionSummary.value)
-const failureSummary = computed(() =>
-  collectionKeys
-    .filter((key) => summary.value.stages[key].failed > 0)
-    .map((key) => `${stageNames[key]}失败 ${summary.value.stages[key].failed}`)
-    .join('；'),
+const progress = computed(() =>
+  collectionProgress(
+    [...helper.jobMaps.values()].map((record) => record.state as BossWorkflowState),
+  ),
 )
-const selectedJobKey = ref<string | null>(null)
-const displayedJobKey = computed(() =>
-  selectedJobKey.value && helper.jobMaps.has(selectedJobKey.value)
-    ? selectedJobKey.value
-    : (helper.currentJob.value ?? sessionJobs.value[0]?.key),
+const progressHint = computed(
+  () =>
+    `本次已处理 ${progress.value.completed}/${progress.value.total} 个岗位，飞书已有并跳过 ${[...helper.jobMaps.values()].filter((record) => (record.state as BossWorkflowState).skippedExisting).length} 个。以当前已发现岗位为范围，继续加载时总数会更新；失败不计为完成。`,
 )
+const failedJobs = computed(
+  () => sessionJobs.value.filter((job) => failedCollectionStages(stateFor(job.key)).length).length,
+)
+const displayedJobKey = computed(() => helper.currentJob.value ?? sessionJobs.value[0]?.key)
 const workflowError = computed(() => safeStageMessage(helper.workflow?.errorMessage.value))
+watch(
+  () => [helper.workflow?.status.value, workflowError.value],
+  () => {
+    if (helper.workflow?.status.value !== 'pending' || workflowError.value)
+      launchRequested.value = false
+  },
+)
+watch([operationActive, workflowError], () => {
+  if (!operationActive.value || workflowError.value) cancelling.value = false
+})
+function toggleCollection() {
+  if (cancelling.value) return
+  if (operationActive.value) {
+    cancelling.value = true
+    helper.stop()
+  } else {
+    void startProcessing()
+  }
+}
 const pageJobs = computed(() => helper.jobList.value)
+const connectionBusy = computed(() =>
+  ['connecting', 'reading', 'reconnecting'].includes(helper.pageConnection.value),
+)
+const connectionCopy = computed(
+  () =>
+    ({
+      connecting: '正在连接 BOSS 页面，请稍等…',
+      reading: '已连接，正在读取岗位列表…',
+      reconnecting: '正在重新连接，已有岗位记录会保留…',
+      empty: '暂未读取到岗位，可以试试滚动页面或调整 BOSS 筛选条件。',
+      error: '暂时连接不上 BOSS 页面，正在自动重试；若持续如此，请刷新 BOSS 页面。',
+      unavailable: '请先切换到 BOSS 岗位列表页，这里会自动连接。',
+      ready: `已读取 ${pageJobs.value.length} 个岗位，随页面加载更新`,
+    })[helper.pageConnection.value],
+)
 const readiness = computed(() => {
   const model = helper.models.modelData.value.find(
     (item) => item.key === conf.formData.aiFiltering.model,
@@ -68,12 +116,9 @@ const readiness = computed(() => {
   const feishu = conf.formData.feishu
   return [
     {
-      label: pageJobs.value.length
-        ? `已读取本页 ${pageJobs.value.length} 个岗位`
-        : workflowError.value
-          ? '尚未连接到可用 BOSS 岗位列表'
-          : '当前页尚未发现岗位，请检查 BOSS 搜索与筛选',
-      ready: !!helper.workflow && pageJobs.value.length > 0,
+      label: connectionCopy.value,
+      ready:
+        !!helper.workflow && helper.pageConnection.value === 'ready' && pageJobs.value.length > 0,
       tab: '',
     },
     {
@@ -110,28 +155,52 @@ const readiness = computed(() => {
   ].filter((item) => item.tab !== 'resume' || conf.formData.aiFiltering.enable)
 })
 const canStart = computed(() => readiness.value.every((item) => item.ready))
-const canReset = computed(() => !!helper.workflow && helper.jobResultMaps.size > 0)
-const policyCopy = '仅采集与分析，不自动投递'
+const canReset = computed(
+  () =>
+    !!helper.workflow && helper.pageConnection.value === 'ready' && helper.jobResultMaps.size > 0,
+)
+const policyCopy = computed(
+  () =>
+    `${conf.formData.aiFiltering.enable ? '采集并执行 AI 简历匹配' : '采集岗位信息'}；${conf.formData.feishu.enable ? '同步飞书' : '不同步飞书'}。采集范围随 BOSS 搜索和筛选更新。`,
+)
+async function setAiAnalysis(enabled: boolean) {
+  if (isBusy.value) return
+  savingAiToggle.value = true
+  actionError.value = ''
+  try {
+    await saveSettingsPatch({ aiFiltering: { ...conf.formData.aiFiltering, enable: enabled } })
+  } catch {
+    actionError.value = 'AI 自动分析开关保存失败，请重试。'
+  } finally {
+    savingAiToggle.value = false
+  }
+}
 function openSettings(tab: string) {
+  checkDialog.value = false
   settingsTab.value = tab
   activeView.value = 'settings'
 }
 async function startProcessing() {
   if (!canStart.value || isBusy.value) return
-  selectedJobKey.value = null
-  await requestAction(() => helper.start())
+  await requestAction(async () => {
+    launchRequested.value = true
+    try {
+      await helper.start()
+      if (helper.workflow?.status.value !== 'pending' || workflowError.value)
+        launchRequested.value = false
+    } catch (error) {
+      launchRequested.value = false
+      throw error
+    }
+  })
 }
 
 async function requestAction(action: () => Promise<void>) {
   if (isBusy.value) return
   requesting.value = true
   actionError.value = ''
-  actionNotice.value = ''
   try {
     await action()
-    // A side-panel command receipt is not completion of the business action.
-    if (!helper.workflow?.errorMessage.value)
-      actionNotice.value = '请求已提交，实际结果请查看阶段状态。'
   } catch (error) {
     actionError.value = safeStageMessage(error instanceof Error ? error.message : String(error))
   } finally {
@@ -143,7 +212,7 @@ function canRetryJob(key: string) {
   const state = helper.jobMaps.get(key)?.state as BossWorkflowState | undefined
   return (
     !isBusy.value &&
-    failedCollectionStages(state).length > 0 &&
+    helper.pageConnection.value === 'ready' &&
     !collectionKeys.some((stage) =>
       ['running', 'unknown'].includes(state?.stages?.[stage]?.status ?? 'pending'),
     )
@@ -151,7 +220,6 @@ function canRetryJob(key: string) {
 }
 async function retryJob(key: string) {
   if (!canRetryJob(key)) return
-  selectedJobKey.value = key
   await requestAction(() => helper.retryJob(key))
 }
 
@@ -168,15 +236,11 @@ const match = computed(() => currentState.value?.aiMatchResult)
 const currentStages = computed(() =>
   collectionKeys.map((key) => stageView(key, currentState.value)),
 )
-const currentStatusLabel = computed(() => collectionLabel(currentState.value))
 function jobStatusLabel(key: string) {
   return collectionLabel(stateFor(key))
 }
 function stateFor(key: string) {
   return helper.jobMaps.get(key)?.state as BossWorkflowState | undefined
-}
-function jobStage(key: string, stage: (typeof collectionKeys)[number]) {
-  return stageView(stage, stateFor(key))
 }
 function decisionFor(key: string) {
   const result = (helper.jobMaps.get(key)?.state as BossWorkflowState | undefined)?.aiMatchResult
@@ -187,13 +251,15 @@ function decisionFor(key: string) {
 function resetProcessing() {
   if (canReset.value && !isBusy.value) helper.reset()
 }
-const recentLogs = computed(() => helper.logs.value.slice(-5).reverse())
+const recentLogs = computed(() => helper.logs.value.slice(-20).reverse())
 const workflowLabel = computed(() =>
-  isBusy.value
-    ? '任务运行中'
-    : { running: '正在处理', stop: '已暂停 / 停止', error: '状态异常', pending: '待命' }[
-        helper.workflow?.status.value ?? 'pending'
-      ],
+  connectionBusy.value
+    ? '正在同步'
+    : isBusy.value
+      ? '任务运行中'
+      : { running: '正在处理', stop: '已暂停 / 停止', error: '状态异常', pending: '待命' }[
+          helper.workflow?.status.value ?? 'pending'
+        ],
 )
 const decisionLabel = computed(() => {
   if (!match.value)
@@ -204,67 +270,55 @@ const decisionSeverity = computed<'secondary' | 'success' | 'warn' | 'danger'>((
   if (!match.value) return 'secondary'
   return ({ APPLY: 'success', REVIEW: 'warn', REJECT: 'danger' } as const)[match.value.decision]
 })
-const progressCopy = computed(() => {
-  if (isBusy.value) return '正在处理，已成功的阶段会保留'
-  if (workflowError.value) return '请先检查页面连接或流程配置'
-  if (helper.workflow?.status.value === 'stop') return '处理已暂停或停止，可查看已有结果'
-  return '采集范围由 BOSS 页面的搜索和筛选决定'
-})
-const deliveryStage = computed(() => stageView('delivery', currentState.value))
-const quotaReached = computed(
-  () => helper.statistics.todayData.value.success >= conf.formData.deliveryLimit.value,
-)
-const deliveryReason = computed(() =>
-  deliveryBlockReason(
-    currentState.value,
-    conf.formData.deliverReview.value,
-    isBusy.value,
-    quotaReached.value,
-  ),
-)
-const deliveryKey = ref<string | null>(null)
-const deliveryDialog = ref(false)
-const deliveryTarget = computed(() =>
-  deliveryKey.value ? helper.jobMaps.get(deliveryKey.value) : undefined,
-)
-const confirmReason = computed(() =>
-  deliveryBlockReason(
-    deliveryKey.value ? stateFor(deliveryKey.value) : undefined,
-    conf.formData.deliverReview.value,
-    isBusy.value,
-    quotaReached.value,
-  ),
-)
-function openDelivery() {
-  if (deliveryReason.value || !currentJob.value) return
-  deliveryKey.value = currentJob.value.key
-  deliveryDialog.value = true
+const checkDialog = ref(false)
+const checkRows = ref<Array<{ label: string; ready: boolean; tab: string }>>([])
+function runCheck() {
+  // Check the currently saved local configuration; this is not a network probe.
+  checkRows.value = readiness.value.map((item) => ({ ...item }))
+  checkDialog.value = true
 }
-async function confirmDelivery() {
-  const key = deliveryKey.value
-  if (!deliveryDialog.value || !key || confirmReason.value) return
-  deliveryDialog.value = false
-  await requestAction(() => helper.deliverJob(key))
+const recordsDialog = ref(false)
+const detailsDialog = ref(false)
+const logsDialog = ref(false)
+const infoDialog = ref(false)
+const inspectedKey = ref<string>()
+const inspected = computed(() =>
+  inspectedKey.value ? helper.jobMaps.get(inspectedKey.value) : undefined,
+)
+const inspectedState = computed(() => inspected.value?.state as BossWorkflowState | undefined)
+const inspectedMatch = computed(() => inspectedState.value?.aiMatchResult)
+const inspectedStages = computed(() =>
+  collectionKeys.map((key) => stageView(key, inspectedState.value)),
+)
+function showDetails(key?: string) {
+  if (!key) return
+  inspectedKey.value = key
+  recordsDialog.value = false
+  detailsDialog.value = true
 }
+const stageShortName = { detail: '详情获取', analysis: 'AI 分析', storage: '飞书入库' }
+const stageShortLabel = (item: ReturnType<typeof stageView>) =>
+  item.status === 'succeeded' ? '已完成' : item.label
+const currentFailed = computed(() => failedCollectionStages(currentState.value).length > 0)
+const dialogStyle = { width: 'min(36rem, calc(100vw - 2rem))' }
 </script>
-
 <template>
   <div class="ph-shell">
-    <header class="ph-header">
+    <header class="ph-header cw-header">
       <div class="ph-heading">
         <div class="ph-product-mark" aria-hidden="true">B</div>
-        <div>
-          <h1>{{ activeView === 'settings' ? '设置' : '岗位工作台' }}</h1>
-          <p v-if="activeView === 'workspace'">{{ progressCopy }}</p>
-        </div>
+        <h1>{{ activeView === 'settings' ? '设置' : '岗位工作台' }}</h1>
       </div>
-
       <div class="ph-header-actions">
-        <Tag
+        <Button
           v-if="activeView === 'workspace'"
-          :value="workflowLabel"
-          :severity="isBusy ? 'info' : 'secondary'"
-          :icon="isBusy ? 'pi pi-spin pi-spinner' : 'pi pi-circle-fill'"
+          v-tooltip.bottom="policyCopy"
+          icon="pi pi-info-circle"
+          severity="secondary"
+          text
+          rounded
+          aria-label="查看运行说明"
+          @click="infoDialog = true"
         />
         <Button
           v-if="activeView === 'workspace'"
@@ -288,288 +342,175 @@ async function confirmDelivery() {
       </div>
     </header>
 
-    <main v-show="activeView === 'workspace'" class="ph-content">
-      <section class="ph-section" aria-labelledby="readiness-title">
-        <h2 id="readiness-title">{{ isRunning ? '运行配置' : '开始前检查' }}</h2>
-        <p class="ph-run-summary">
-          {{ policyCopy }} · {{ conf.formData.feishu.enable ? '同步飞书' : '不同步飞书' }}
-        </p>
-        <Message v-if="workflowError" severity="error" :closable="false">{{
-          workflowError
-        }}</Message>
-        <Message v-if="actionError" severity="error" :closable="false">{{ actionError }}</Message>
-        <p v-if="actionNotice && !workflowError" class="ph-empty-copy" role="status">
-          {{ actionNotice }}
-        </p>
-        <ul v-if="!isRunning" class="ph-readiness-list">
-          <li v-for="item in readiness" :key="item.tab">
-            <span
-              ><i
-                :class="item.ready ? 'pi pi-check-circle' : 'pi pi-exclamation-circle'"
-                aria-hidden="true"
-              />
-              {{ item.label }}</span
-            >
-            <Button
-              v-if="!item.ready && item.tab"
-              label="去设置"
-              size="small"
-              text
-              @click="openSettings(item.tab)"
-            />
-          </li>
-        </ul>
-        <div class="ph-session-summary" aria-label="本次会话汇总">
-          <span
-            >发现 <strong>{{ summary.total }}</strong></span
-          >
-          <span
-            >详情成功 <strong>{{ summary.stages.detail.succeeded }}</strong></span
-          >
-          <span
-            >分析成功 <strong>{{ summary.stages.analysis.succeeded }}</strong></span
-          >
-          <span
-            >入库成功 <strong>{{ summary.stages.storage.succeeded }}</strong></span
-          >
+    <main v-show="activeView === 'workspace'" class="cw-content">
+      <section class="cw-section" aria-label="运行概况">
+        <div class="cw-row">
+          <Tag
+            :value="workflowLabel"
+            :severity="isBusy || connectionBusy ? 'info' : 'secondary'"
+            :icon="isBusy || connectionBusy ? 'pi pi-spin pi-spinner' : 'pi pi-circle-fill'"
+          />
+          <Button
+            label="检查配置"
+            icon="pi pi-check-circle"
+            size="small"
+            text
+            severity="secondary"
+            @click="runCheck"
+          />
         </div>
-        <Message v-if="failureSummary" severity="warn" :closable="false"
-          >{{ failureSummary }}。可选择失败岗位重试。</Message
-        >
-        <p class="ph-empty-copy">记录仅保留在当前 BOSS 页面会话；刷新该页面后不会恢复。</p>
-      </section>
-      <section
-        v-if="sessionJobs.length"
-        class="ph-section ph-results"
-        aria-labelledby="results-title"
-      >
-        <div class="ph-section-header">
-          <h2 id="results-title">本次会话岗位</h2>
-          <span class="ph-count">{{ sessionJobs.length }} 个</span>
+        <div class="cw-row">
+          <label for="collection-ai-analysis">AI 自动分析</label>
+          <ToggleSwitch
+            input-id="collection-ai-analysis"
+            :model-value="conf.formData.aiFiltering.enable"
+            :disabled="isBusy"
+            @update:model-value="setAiAnalysis"
+          />
         </div>
-        <ul class="ph-result-list">
-          <li v-for="job in sessionJobs" :key="job.key" class="ph-record">
-            <Button
-              :label="job.jobName || job.positionName"
-              :text="displayedJobKey !== job.key"
-              severity="secondary"
-              size="small"
-              :aria-pressed="displayedJobKey === job.key"
-              @click="selectedJobKey = job.key"
-            />
-            <span class="ph-record-company">{{ job.brand.name }}</span>
-            <div class="ph-status-tags">
-              <Tag
-                :value="jobStatusLabel(job.key)"
-                :severity="
-                  failedCollectionStages(stateFor(job.key)).length ? 'danger' : 'secondary'
-                "
-              />
-              <Tag v-if="decisionFor(job.key)" :value="decisionFor(job.key)" severity="secondary" />
-            </div>
-            <div class="ph-record-stages">
-              <Tag
-                v-for="stage in collectionKeys"
-                :key="stage"
-                :value="`${stageNames[stage]}：${jobStage(job.key, stage).label}`"
-                :severity="jobStage(job.key, stage).severity"
-              />
-            </div>
-            <Button
-              v-if="failedCollectionStages(stateFor(job.key)).length"
-              label="重试该岗位"
-              size="small"
-              severity="secondary"
-              outlined
-              :disabled="!canRetryJob(job.key)"
-              @click="retryJob(job.key)"
-            />
-          </li>
-        </ul>
-      </section>
-      <section v-else-if="pageJobs.length" class="ph-section">
-        <p class="ph-empty-copy">
-          尚未开始采集。点击“开始采集”后，这里将保留跨翻页的岗位和阶段结果。
+        <p v-if="helper.pageConnection.value !== 'ready'" class="cw-connection" role="status">
+          {{ connectionCopy }}
         </p>
+        <Button
+          v-else-if="!canStart && !isBusy"
+          label="有配置待完善，点击检查"
+          icon="pi pi-exclamation-circle"
+          severity="warn"
+          text
+          size="small"
+          @click="runCheck"
+        />
+        <div class="cw-metrics" aria-label="本次会话汇总">
+          <div>
+            <strong>{{ summary.total }}</strong
+            ><span>已发现</span>
+          </div>
+          <div>
+            <strong>{{ summary.stages.detail.succeeded }}</strong
+            ><span>详情完成</span>
+          </div>
+          <div>
+            <strong>{{ summary.stages.analysis.succeeded }}</strong
+            ><span>分析完成</span>
+          </div>
+          <div>
+            <strong>{{ summary.stages.storage.succeeded }}</strong
+            ><span>已入库</span>
+          </div>
+        </div>
+        <div v-if="workflowError || actionError" class="cw-error" role="alert">
+          <p class="cw-clamp">{{ workflowError || actionError }}</p>
+          <Button label="查看问题" severity="danger" text size="small" @click="logsDialog = true" />
+        </div>
       </section>
-      <div v-if="currentJob" class="ph-job-detail">
-        <section
-          v-if="currentJob"
-          class="ph-section ph-current-job"
-          aria-labelledby="current-job-title"
-        >
-          <div class="ph-section-header">
-            <div>
-              <span class="ph-kicker">{{ selectedJobKey ? '选中岗位' : '当前岗位' }}</span>
-              <template v-if="currentJob">
-                <a
-                  id="current-job-title"
-                  :href="currentJob.link"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="ph-job-link"
-                >
-                  {{ currentJob.jobName || currentJob.positionName }}
-                  <i class="pi pi-external-link" aria-hidden="true" />
-                </a>
-              </template>
-              <h2 v-else id="current-job-title">还没有正在处理的岗位</h2>
-            </div>
-            <Tag v-if="currentJob" :value="currentStatusLabel" severity="secondary" />
-          </div>
 
-          <template v-if="currentJob">
-            <p class="ph-job-meta">
-              <span>{{ currentJob.brand.name }}</span>
-              <span>{{ currentJob.salary || '薪资待确认' }}</span>
-              <span>{{ currentJob.address || currentJob.city || '地点待确认' }}</span>
-            </p>
-          </template>
-          <p v-else class="ph-empty-copy">
-            在 BOSS 岗位列表页开始处理后，这里会显示当前进度和匹配判断。
-          </p>
-        </section>
-
-        <section class="ph-section" aria-labelledby="stages-title">
-          <div class="ph-section-header">
-            <h2 id="stages-title">采集阶段</h2>
-            <Button
-              v-if="failedCollectionStages(currentState).length && displayedJobKey"
-              label="重试该岗位"
-              severity="secondary"
-              outlined
-              size="small"
-              :disabled="!canRetryJob(displayedJobKey)"
-              @click="retryJob(displayedJobKey)"
-            />
-          </div>
-          <Timeline
-            :value="currentStages"
-            class="ph-stages"
-            :pt="{
-              eventOpposite: { style: 'flex: 0 0 6rem' },
-              eventContent: { style: 'min-width: 0' },
-            }"
+      <section class="cw-section cw-current" aria-labelledby="current-title">
+        <div class="cw-row">
+          <h2 id="current-title">
+            {{ helper.currentJob.value ? '当前岗位' : currentJob ? '待处理岗位' : '等待岗位' }}
+          </h2>
+          <Button
+            v-if="currentJob"
+            label="详情"
+            icon="pi pi-angle-right"
+            size="small"
+            text
+            severity="secondary"
+            @click="showDetails(currentJob.key)"
+          />
+        </div>
+        <template v-if="currentJob">
+          <a
+            :href="currentJob.link"
+            target="_blank"
+            rel="noreferrer"
+            class="cw-job-name"
+            v-tooltip.top="currentJob.jobName || currentJob.positionName"
+            >{{ currentJob.jobName || currentJob.positionName }}</a
           >
-            <template #opposite="{ item }"
-              ><span class="ph-stage-name">{{ item.name }}</span></template
-            >
-            <template #content="{ item }">
-              <div class="ph-stage-content">
-                <Tag :value="item.label" :severity="item.severity" />
-                <span class="ph-count">尝试 {{ item.attempts }} 次</span>
-                <Accordion
-                  v-if="item.message"
-                  :value="item.status === 'failed' ? 'error' : undefined"
-                >
-                  <AccordionPanel value="error">
-                    <AccordionHeader>查看原因</AccordionHeader>
-                    <AccordionContent
-                      ><p class="ph-stage-message">{{ item.message }}</p></AccordionContent
-                    >
-                  </AccordionPanel>
-                </Accordion>
-              </div>
-            </template>
-          </Timeline>
-          <p v-if="failedCollectionStages(currentState).length" class="ph-empty-copy">
-            重试只执行未成功阶段；已成功的详情、分析和入库结果会复用。
-          </p>
-        </section>
+          <p class="cw-meta" v-tooltip.top="currentJob.brand.name">{{ currentJob.brand.name }}</p>
+        </template>
+        <p v-else class="cw-muted">
+          {{
+            connectionBusy
+              ? '页面就绪后，岗位会自动出现在这里。'
+              : '在 BOSS 列表页选择搜索条件，然后开始采集。'
+          }}
+        </p>
 
-        <section v-if="currentJob" class="ph-section ph-decision" aria-labelledby="decision-title">
-          <div class="ph-section-header">
-            <div>
-              <span class="ph-kicker">AI 决策</span>
-              <h2 id="decision-title">{{ decisionLabel }}</h2>
-            </div>
-            <Tag :value="decisionLabel" :severity="decisionSeverity" />
-          </div>
-
-          <template v-if="match">
-            <p class="ph-decision-reason">{{ match.reason }}</p>
-            <div class="ph-decision-grid">
-              <div v-if="match.matchPoints.length" class="ph-finding">
-                <h3><i class="pi pi-check-circle" aria-hidden="true" />匹配点</h3>
-                <ul>
-                  <li v-for="item in match.matchPoints" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-              <div v-if="match.gaps.length" class="ph-finding">
-                <h3><i class="pi pi-exclamation-circle" aria-hidden="true" />缺口与风险</h3>
-                <ul>
-                  <li v-for="item in match.gaps" :key="item">{{ item }}</li>
-                </ul>
-              </div>
-              <div v-if="match.uncertainties.length" class="ph-finding">
-                <h3><i class="pi pi-question-circle" aria-hidden="true" />待核实</h3>
-                <ul>
-                  <li v-for="item in match.uncertainties" :key="item">{{ item }}</li>
-                </ul>
-              </div>
+        <Timeline
+          :value="currentStages"
+          layout="horizontal"
+          align="top"
+          class="cw-stages"
+          aria-label="采集阶段"
+          :pt="{
+            event: { style: 'flex: 1; min-width: 0' },
+            eventOpposite: { style: 'display: none' },
+            eventContent: { style: 'min-width: 0; padding: 0.5rem 0.25rem 0 0' },
+          }"
+        >
+          <template #content="{ item }">
+            <div class="cw-stage">
+              <span>{{ stageShortName[item.key as keyof typeof stageShortName] }}</span>
+              <Tag
+                :value="stageShortLabel(item)"
+                :severity="item.severity"
+                :icon="item.status === 'running' ? 'pi pi-spin pi-spinner' : undefined"
+              />
             </div>
           </template>
-          <p v-else class="ph-empty-copy" aria-live="polite">
-            {{
-              currentState?.stages?.analysis?.status === 'running'
-                ? 'AI 正在生成判断。'
-                : currentState?.stages?.analysis?.status === 'skipped'
-                  ? '采集时未启用 AI，本岗位没有匹配结论。'
-                  : '此岗位尚无有效 AI 结论，请查看上方分析阶段。'
-            }}
-          </p>
-        </section>
-
-        <section v-if="currentJob" class="ph-section" aria-labelledby="status-title">
-          <div>
-            <h2 id="status-title">独立投递</h2>
-          </div>
-          <div class="ph-status-tags">
-            <Tag :value="deliveryStage.label" :severity="deliveryStage.severity" />
-            <Button
-              v-if="!['unknown', 'running', 'succeeded'].includes(deliveryStage.status)"
-              label="投递该岗位…"
-              severity="secondary"
-              outlined
-              size="small"
-              :disabled="!!deliveryReason"
-              @click="openDelivery"
-            />
-          </div>
-          <Message v-if="deliveryStage.status === 'unknown'" severity="warn" :closable="false"
-            >{{ deliveryReason }}。<a :href="currentJob.link" target="_blank" rel="noreferrer"
-              >打开 BOSS 岗位</a
-            ></Message
-          >
-          <p v-else-if="deliveryReason" class="ph-empty-copy">{{ deliveryReason }}</p>
-          <p v-else class="ph-empty-copy">投递将向此岗位招聘者发起沟通；点击后还需确认。</p>
-          <p v-if="deliveryStage.message" class="ph-stage-message">{{ deliveryStage.message }}</p>
-        </section>
-      </div>
-      <section
-        v-if="recentLogs.length"
-        class="ph-section ph-activity"
-        aria-labelledby="activity-title"
-      >
-        <div class="ph-section-header">
-          <div>
-            <span class="ph-kicker">活动记录</span>
-            <h2 id="activity-title">最近动态</h2>
-          </div>
-          <span class="ph-count">{{ recentLogs.length }} 条</span>
+        </Timeline>
+        <div v-if="currentFailed && currentJob" class="cw-row cw-failure">
+          <Button
+            label="查看失败原因"
+            icon="pi pi-exclamation-circle"
+            severity="danger"
+            text
+            size="small"
+            @click="showDetails(currentJob.key)"
+          />
+          <Button
+            label="重试该岗位"
+            severity="secondary"
+            outlined
+            size="small"
+            :disabled="!canRetryJob(currentJob.key)"
+            @click="retryJob(currentJob.key)"
+          />
         </div>
 
-        <p v-if="!recentLogs.length" class="ph-empty-copy">处理记录会显示在这里。</p>
-        <ol v-else class="ph-activity-list">
-          <li v-for="(log, index) in recentLogs" :key="`${log.title}-${index}`">
-            <i class="pi pi-circle-fill" aria-hidden="true" />
-            <div>
-              <strong>{{ safeStageMessage(log.title) }}</strong>
-              <p>{{ safeStageMessage(log.message || log.state_name) }}</p>
-            </div>
-          </li>
-        </ol>
+        <div v-if="match" class="cw-ai">
+          <Tag :value="decisionLabel" :severity="decisionSeverity" />
+        </div>
       </section>
+
+      <nav class="cw-secondary" aria-label="更多记录">
+        <Button
+          :label="`记录 ${sessionJobs.length}`"
+          icon="pi pi-list"
+          severity="secondary"
+          text
+          size="small"
+          @click="recordsDialog = true"
+        />
+        <Button
+          v-if="failedJobs"
+          :label="`${failedJobs} 个失败`"
+          severity="warn"
+          text
+          size="small"
+          @click="recordsDialog = true"
+        />
+        <Button
+          label="运行日志"
+          icon="pi pi-history"
+          severity="secondary"
+          text
+          size="small"
+          @click="logsDialog = true"
+        />
+      </nav>
     </main>
 
     <main v-show="activeView === 'settings'" class="ph-settings">
@@ -589,218 +530,377 @@ async function confirmDelivery() {
       </Tabs>
     </main>
 
-    <footer v-if="activeView === 'workspace'" class="ph-footer">
-      <div class="ph-progress-meta">
-        <span>当前页 {{ pageJobs.length }} 个岗位</span>
-        <span
-          >今日已投递 {{ helper.statistics.todayData.value.success }}/{{
-            conf.formData.deliveryLimit.value
-          }}</span
-        >
-      </div>
+    <footer v-if="activeView === 'workspace'" class="cw-footer">
+      <ProgressBar
+        v-tooltip.top="progressHint"
+        :value="progress.value"
+        :show-value="false"
+        aria-label="本次采集完成进度"
+        :aria-valuetext="progressHint"
+      />
       <div class="ph-actions">
         <Button
-          :label="helper.workflow?.status.value === 'stop' ? '继续采集' : '开始采集'"
-          icon="pi pi-play"
-          :loading="isBusy"
-          :disabled="!canStart || isBusy"
+          :label="
+            cancelling
+              ? '正在取消…'
+              : operationActive
+                ? '取消采集'
+                : helper.workflow?.status.value === 'stop'
+                  ? '继续采集'
+                  : '开始采集'
+          "
+          :icon="operationActive ? 'pi pi-stop' : 'pi pi-play'"
+          :loading="cancelling"
+          :disabled="cancelling || (!operationActive && !canStart)"
           fluid
-          @click="startProcessing"
-        />
-        <Button
-          v-if="helper.workflow?.status.value === 'running'"
-          label="暂停"
-          icon="pi pi-pause"
-          severity="warn"
-          outlined
-          @click="helper.stop()"
-        />
-      </div>
-      <div class="ph-footer-secondary">
-        <span class="ph-count">暂停后，已发出的请求可能仍需等待返回。</span>
-        <Button
-          v-tooltip.top="'仅重置旧顶层等待状态，保留成功阶段；不会清空记录或重新分析。'"
-          label="重置等待状态"
-          aria-label="重置等待状态，保留成功阶段，不重新分析"
-          severity="secondary"
-          text
-          size="small"
-          :disabled="!canReset || isBusy"
-          @click="resetProcessing"
+          @click="toggleCollection"
         />
       </div>
     </footer>
-    <Dialog
-      v-model:visible="deliveryDialog"
-      modal
-      header="确认投递该岗位"
-      class="ph-delivery-dialog"
-      :style="{ width: 'min(32rem, calc(100vw - 2rem))' }"
-      @hide="deliveryKey = null"
-    >
-      <template v-if="deliveryTarget">
-        <h3>{{ deliveryTarget.jobData.jobName || deliveryTarget.jobData.positionName }}</h3>
-        <p>{{ deliveryTarget.jobData.brand.name }}</p>
-        <p>AI 决策：{{ deliveryTarget.state.aiMatchResult?.decision }}</p>
-        <Message severity="warn" :closable="false"
-          >确认后将向该岗位招聘者发送沟通请求。这不是仅保存岗位，也不会批量投递其他岗位。</Message
-        >
-        <p>仍需通过岗位过滤与今日投递上限检查；请求提交不等于投递成功。</p>
-      </template>
-      <Message v-if="confirmReason" severity="warn" :closable="false">{{ confirmReason }}</Message>
+
+    <Dialog v-model:visible="checkDialog" modal header="配置检查" :style="dialogStyle">
+      <p class="cw-muted">
+        检查当前已保存配置，不调用模型、不写入飞书；配置完整不代表远端服务已连通。
+      </p>
+      <ul class="cw-check-list">
+        <li v-for="item in checkRows" :key="item.tab">
+          <i
+            :class="
+              item.ready
+                ? 'pi pi-check-circle'
+                : !item.tab && connectionBusy
+                  ? 'pi pi-spin pi-spinner'
+                  : 'pi pi-exclamation-circle'
+            "
+            aria-hidden="true"
+          />
+          <span>{{ item.label }}</span>
+          <Button
+            v-if="!item.ready && item.tab"
+            label="去设置"
+            text
+            size="small"
+            @click="openSettings(item.tab)"
+          />
+        </li>
+      </ul>
       <template #footer>
-        <Button label="取消" severity="secondary" text @click="deliveryDialog = false" />
-        <Button
-          label="确认投递"
-          :disabled="!!confirmReason"
-          :loading="requesting"
-          @click="confirmDelivery"
-        />
+        <Button label="重新检查" severity="secondary" text @click="runCheck" />
+        <Button label="知道了" @click="checkDialog = false" />
       </template>
+    </Dialog>
+
+    <Dialog v-model:visible="recordsDialog" modal header="本次会话记录" :style="dialogStyle">
+      <p class="cw-muted">
+        只保留当前 BOSS 页面会话，刷新页面后清空。查看历史记录不会切换正在处理的岗位。
+      </p>
+      <DataTable
+        :value="sessionJobs"
+        dataKey="key"
+        paginator
+        :rows="6"
+        size="small"
+        paginatorTemplate="PrevPageLink CurrentPageReport NextPageLink"
+        currentPageReportTemplate="{currentPage} / {totalPages}"
+      >
+        <Column header="岗位">
+          <template #body="{ data }">
+            <Button
+              :label="data.jobName || data.positionName"
+              severity="secondary"
+              text
+              size="small"
+              @click="showDetails(data.key)"
+            />
+            <p class="cw-muted">{{ data.brand.name }}</p>
+            <Tag
+              :value="jobStatusLabel(data.key)"
+              :severity="failedCollectionStages(stateFor(data.key)).length ? 'danger' : 'secondary'"
+            />
+            <span class="cw-muted"> {{ decisionFor(data.key) }}</span>
+          </template>
+        </Column>
+        <Column header="操作">
+          <template #body="{ data }">
+            <Button
+              v-if="failedCollectionStages(stateFor(data.key)).length"
+              label="重试"
+              size="small"
+              severity="secondary"
+              :disabled="!canRetryJob(data.key)"
+              @click="retryJob(data.key)"
+            />
+            <Button v-else label="查看" size="small" text @click="showDetails(data.key)" />
+          </template>
+        </Column>
+        <template #empty>本次会话尚无岗位记录。</template>
+      </DataTable>
+    </Dialog>
+
+    <Dialog v-model:visible="detailsDialog" modal header="岗位处理详情" :style="dialogStyle">
+      <template v-if="inspected">
+        <h3 class="cw-detail-title">
+          {{ inspected.jobData.jobName || inspected.jobData.positionName }}
+        </h3>
+        <p class="cw-muted">
+          {{ inspected.jobData.brand.name }} · {{ inspected.jobData.salary || '薪资待确认' }}
+        </p>
+        <div v-if="conf.formData.feishu.enable" class="cw-row">
+          <Tag
+            :value="inspectedState?.feishuRecord?.applicationProgress || '尚未回读进度'"
+            severity="secondary"
+          />
+          <Button
+            label="回读进度"
+            severity="secondary"
+            text
+            size="small"
+            :disabled="isBusy"
+            @click="requestAction(() => helper.refreshProgress(inspected!.jobData.key))"
+          />
+        </div>
+        <div v-for="stage in inspectedStages" :key="stage.key" class="cw-detail-stage">
+          <div class="cw-row">
+            <strong>{{ stage.name }}</strong
+            ><Tag :value="stage.label" :severity="stage.severity" />
+          </div>
+          <p class="cw-muted">尝试 {{ stage.attempts }} 次</p>
+          <p v-if="stage.message" class="cw-message">{{ stage.message }}</p>
+        </div>
+        <template v-if="inspectedMatch">
+          <h3>AI 分析</h3>
+          <p>{{ inspectedMatch.reason }}</p>
+          <template
+            v-for="group in [
+              { title: '匹配点', items: inspectedMatch.matchPoints },
+              { title: '缺口', items: inspectedMatch.gaps },
+              { title: '待核实', items: inspectedMatch.uncertainties },
+            ]"
+            :key="group.title"
+          >
+            <h4 v-if="group.items.length">{{ group.title }}</h4>
+            <ul v-if="group.items.length">
+              <li v-for="item in group.items" :key="item">{{ item }}</li>
+            </ul>
+          </template>
+        </template>
+        <p v-else class="cw-muted">
+          {{
+            inspectedState?.skippedExisting
+              ? '飞书已有，本次跳过详情采集与 AI 分析。'
+              : inspectedState?.stages?.analysis?.status === 'skipped'
+                ? '本岗位采集时未启用 AI。'
+                : '本岗位尚无 AI 结论。'
+          }}
+        </p>
+      </template>
+      <p v-else>该岗位已不在当前会话中。</p>
+      <GreetingDraft
+        v-if="inspected"
+        :key="inspected.jobData.key"
+        :job="inspected.jobData"
+        :busy="isBusy"
+      />
+      <template #footer>
+        <Button
+          v-if="inspectedKey"
+          :label="failedCollectionStages(inspectedState).length ? '重试该岗位' : '更新分析与入库'"
+          :disabled="!canRetryJob(inspectedKey)"
+          severity="secondary"
+          @click="retryJob(inspectedKey)"
+        />
+        <Button label="关闭" @click="detailsDialog = false" />
+      </template>
+    </Dialog>
+
+    <Dialog v-model:visible="logsDialog" modal header="运行日志" :style="dialogStyle">
+      <Message v-if="workflowError || actionError" severity="error" :closable="false">{{
+        workflowError || actionError
+      }}</Message>
+      <p class="cw-muted">
+        请求提交不等于处理完成，以各阶段结果为准。暂停后，已发出的请求可能仍需等待返回。
+      </p>
+      <ol v-if="recentLogs.length" class="cw-log-list">
+        <li v-for="(log, index) in recentLogs" :key="index">
+          <strong>{{ safeStageMessage(log.title) }}</strong>
+          <p class="cw-message">{{ safeStageMessage(log.message || log.state_name) }}</p>
+        </li>
+      </ol>
+      <p v-else class="cw-muted">暂无运行记录。</p>
+      <template #footer>
+        <Button
+          v-tooltip.top="'保留成功阶段，不清空记录或重新分析。'"
+          label="重置等待状态"
+          severity="secondary"
+          text
+          :disabled="!canReset || isBusy"
+          @click="resetProcessing"
+        />
+        <Button label="关闭" @click="logsDialog = false" />
+      </template>
+    </Dialog>
+
+    <Dialog v-model:visible="infoDialog" modal header="运行说明" :style="dialogStyle">
+      <p>{{ policyCopy }}</p>
+      <p>岗位详情、AI 分析和飞书入库独立记录状态。关闭 AI 或飞书时，对应阶段显示“未启用”。</p>
+      <p>记录只保留在当前 BOSS 页面会话中；刷新该页面后不会恢复。重试会复用已成功阶段。</p>
+      <p>如需手动投递，请在 BOSS 原页面操作。</p>
+      <template #footer><Button label="知道了" @click="infoDialog = false" /></template>
     </Dialog>
   </div>
 </template>
 
 <style scoped>
-.ph-readiness-list,
-.ph-result-list {
-  display: grid;
-  gap: 0.5rem;
-  margin: 0.75rem 0 0;
-  padding: 0;
-  list-style: none;
+.cw-header {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
 }
-
-.ph-readiness-list li,
-.ph-result-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.ph-readiness-list li > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.ph-result-list {
-  max-height: 16rem;
+.cw-content {
+  min-height: 0;
   overflow: auto;
+  padding: 0 1rem;
 }
-
-.ph-run-summary {
+.cw-section {
   padding: 0.5rem 0;
-}
-
-.ph-status-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.ph-job-detail {
-  min-width: 0;
-}
-
-.ph-result-list li {
-  flex-wrap: wrap;
-}
-
-.ph-result-list li > :first-child {
-  min-width: 0;
-  max-width: 100%;
-}
-
-.ph-session-summary,
-.ph-record-stages,
-.ph-footer-secondary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-}
-.ph-session-summary {
-  margin-top: 1rem;
-  font-size: 0.875rem;
-}
-.ph-footer-secondary {
-  justify-content: space-between;
-  margin-top: 0.5rem;
-}
-.ph-footer-secondary > span {
-  flex: 1;
-  min-width: 10rem;
-}
-.ph-result-list .ph-record {
-  align-items: flex-start;
-  flex-direction: column;
-  padding: 0.75rem 0;
   border-bottom: 1px solid var(--p-content-border-color);
 }
-.ph-record-company {
+.cw-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.cw-row h2 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.cw-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.cw-metrics > div {
+  display: grid;
+  gap: 0.25rem;
+}
+.cw-metrics strong {
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+}
+.cw-metrics span,
+.cw-muted,
+.cw-meta {
+  font-size: 0.8125rem;
   color: var(--p-text-muted-color);
+  line-height: 1.5;
+}
+.cw-connection {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  margin: 0.5rem 0 0;
+}
+.cw-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  color: var(--p-red-600);
+}
+.cw-error p {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
   font-size: 0.8125rem;
 }
-.ph-record-stages {
-  gap: 0.375rem;
+.cw-clamp,
+.cw-job-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
-.ph-stages {
+.cw-job-name {
+  color: var(--p-text-color);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+  margin: 0.5rem 0 0.25rem;
+}
+.cw-job-name:hover {
+  text-decoration: underline;
+}
+.cw-meta {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cw-stages {
   margin-top: 1rem;
 }
-.ph-stage-name {
-  font-size: 0.8125rem;
-}
-.ph-stage-content {
+.cw-stage {
   display: grid;
   justify-items: start;
   gap: 0.5rem;
-  padding-bottom: 1rem;
-  min-width: 0;
 }
-.ph-stage-content > .p-accordion {
-  width: 100%;
-}
-.ph-stage-message {
+.cw-stage > span {
   font-size: 0.8125rem;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
-.ph-job-detail .ph-status-tags {
+.cw-failure {
+  margin-top: 0.5rem;
+}
+.cw-ai {
   margin-top: 0.75rem;
 }
-
-@media (max-width: 899px) {
-  .ph-record-stages {
-    display: none;
-  }
+.cw-secondary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
 }
-
-@media (min-width: 900px) {
-  .ph-content {
-    display: grid;
-    grid-template-columns: minmax(18rem, 0.8fr) minmax(0, 1.5fr);
-    align-content: start;
-    column-gap: 1.5rem;
-  }
-
-  .ph-content > * {
-    grid-column: 1 / -1;
-    min-width: 0;
-  }
-
-  .ph-results {
-    grid-column: 1;
-    align-self: start;
-  }
-
-  .ph-job-detail {
-    grid-column: 2;
-  }
-
-  .ph-result-list {
-    max-height: 32rem;
-  }
+.cw-footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--p-content-border-color);
+}
+.cw-footer .ph-actions {
+  margin-top: 0.5rem;
+}
+.cw-check-list,
+.cw-log-list {
+  padding: 0;
+  list-style: none;
+}
+.cw-check-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+}
+.cw-check-list li > span {
+  flex: 1;
+  min-width: 0;
+}
+.cw-detail-title,
+.cw-message {
+  overflow-wrap: anywhere;
+}
+.cw-message {
+  white-space: pre-wrap;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.cw-detail-stage,
+.cw-log-list li {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--p-content-border-color);
+}
+.cw-detail-stage p {
+  margin: 0.5rem 0 0;
 }
 </style>

@@ -290,7 +290,10 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       if (!skipPipeline && isStop()) {
         helper.jobResultMaps.set(data.jobData.key, {
           status: 'wait',
-          msg: '已暂停，等待继续',
+          msg:
+            helper.jobResultMaps.get(data.jobData.key)?.status === 'wait'
+              ? (helper.jobResultMaps.get(data.jobData.key)?.msg ?? '已暂停，等待继续')
+              : '已暂停，等待继续',
         })
       } else if (!skipPipeline) {
         helper.jobResultMaps.set(data.jobData.key, {
@@ -300,7 +303,11 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         if (mode === 'delivery') helper.statistics.todayData.value.success++
       } else if (!errorLog) {
         const r = helper.jobResultMaps.get(data.jobData.key)
-        log.warn(`投递过滤: ${data.jobData.jobName}`, r?.msg, r?.reason)
+        log.warn(
+          `${mode === 'collection' ? '采集跳过' : '投递过滤'}: ${data.jobData.jobName}`,
+          r?.msg,
+          r?.reason,
+        )
       }
     } catch (e) {
       status.value = 'error'
@@ -321,6 +328,23 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     errorMessage.value = null
     status.value = 'running'
     const isStop = () => status.value === 'stop'
+    const collectionOnly = mode === 'collection' && !helper.conf.formData.aiFiltering?.enable
+    const startDelay = collectionOnly
+      ? Math.min(helper.conf.formData.delayDeliveryStarts, 1)
+      : helper.conf.formData.delayDeliveryStarts
+    const jobDelay =
+      mode === 'collection'
+        ? Math.max(helper.conf.formData.delayDeliveryInterval, 5)
+        : helper.conf.formData.delayDeliveryInterval
+    const pageDelay =
+      mode === 'collection'
+        ? Math.max(helper.conf.formData.delayDeliveryPageNext, 15)
+        : helper.conf.formData.delayDeliveryPageNext
+    const waitBetweenActions = (seconds: number) =>
+      delay(
+        mode === 'collection' && seconds > 0 ? seconds * (0.8 + Math.random() * 0.4) : seconds,
+        isStop,
+      )
 
     try {
       while (status.value === 'running') {
@@ -341,7 +365,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           helper.jobResultMaps.set(job.key, v)
         })
 
-        await delay(helper.conf.formData.delayDeliveryStarts, isStop)
+        await waitBetweenActions(startDelay)
 
         for (const [index, jobData] of helper.jobList.value.entries()) {
           current.value = index + 1
@@ -367,12 +391,13 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
             status.value = 'stop'
             break
           }
-          await delay(helper.conf.formData.delayDeliveryInterval, isStop)
+          if (isStop()) break
+          if (!(mode === 'collection' && helper.jobResultMaps.get(jobData.key)?.isCache))
+            await waitBetweenActions(jobDelay)
         }
         if (isStop()) break
-        const hasMore = await helper.loadMoreJob(
-          delay(helper.conf.formData.delayDeliveryPageNext, isStop),
-        )
+        const hasMore = await helper.loadMoreJob(waitBetweenActions(pageDelay))
+        if (isStop()) break
         if (!hasMore) {
           status.value = 'stop'
           stepMsg =
@@ -387,8 +412,8 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       stepMsg = `未知错误: ${e instanceof Error ? e.message : JSON.stringify(e)}`
     } finally {
       if (!stepMsg) {
-        stepMsg = mode === 'collection' ? '采集已暂停或结束' : '投递结束'
-        status.value = 'pending'
+        stepMsg = errorMessage.value ?? (mode === 'collection' ? '采集已暂停或结束' : '投递结束')
+        if (status.value !== 'stop') status.value = 'pending'
       } else if (status.value !== 'stop') {
         status.value = 'error'
         errorMessage.value = stepMsg

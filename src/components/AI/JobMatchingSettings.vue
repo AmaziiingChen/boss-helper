@@ -4,10 +4,11 @@ import Dialog from 'primevue/dialog'
 import Editor from 'primevue/editor'
 import FileUpload from 'primevue/fileupload'
 import type { FileUploadSelectEvent } from 'primevue/fileupload'
-import Message from 'primevue/message'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 
+import SettingsPage from '@/components/SettingsPage.vue'
 import { useSettingsDraft } from '@/composables/conf/settingsDraft'
+import { readCandidateProfile } from '@/services/candidateProfile'
 import { hasNonEmptyResume, resumeFileToHtml } from '@/utils/resumeImport'
 
 const resumeTemplate = `<h1>姓名</h1>
@@ -26,21 +27,17 @@ const resumeTemplate = `<h1>姓名</h1>
 type Resume = { content: string; fileName: string }
 const { conf, dirty, saving, save, locked } = useSettingsDraft('resume')
 const uploadKey = ref(0)
+const profileUploadKey = ref(0)
 const importing = ref(false)
 const error = ref('')
-const saved = ref(false)
 const previousResume = ref<Resume | null>(null)
 const pendingResume = ref<Resume | null>(null)
 const confirmVisible = ref(false)
-const status = computed(() =>
-  saving.value ? '保存中…' : dirty.value ? '有未保存的修改' : saved.value ? '已保存' : '暂无修改',
-)
 
 function applyReplacement(resume: Resume) {
   previousResume.value = { ...conf.formData.resumeMarkdown }
   conf.formData.resumeMarkdown = { ...resume }
   error.value = ''
-  saved.value = false
 }
 
 function requestReplacement(resume: Resume) {
@@ -63,7 +60,6 @@ function undoReplacement() {
   conf.formData.resumeMarkdown = { ...previousResume.value }
   previousResume.value = null
   error.value = ''
-  saved.value = false
 }
 
 async function selectResume(event: FileUploadSelectEvent) {
@@ -87,41 +83,66 @@ async function saveResume() {
   error.value = ''
   try {
     await save()
-    saved.value = true
   } catch {
     error.value = '保存失败，草稿仍保留，请重试。'
+  }
+}
+
+async function selectProfile(event: FileUploadSelectEvent) {
+  const file: File | undefined = event.files[0]
+  if (!file) return
+  importing.value = true
+  error.value = ''
+  try {
+    if (file.size > 150000) throw new Error('个人资料文件过大，请精简后导入。')
+    const content = readCandidateProfile(await file.text())
+    conf.formData.candidateProfile = { content, fileName: file.name }
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '读取个人资料失败。'
+  } finally {
+    importing.value = false
+    profileUploadKey.value++
   }
 }
 </script>
 
 <template>
-  <div class="prime-settings-stack resume-settings">
-    <section class="settings-toolbar">
-      <h2>简历</h2>
-      <div class="settings-toolbar-actions">
-        <FileUpload
-          :key="uploadKey"
-          mode="basic"
-          name="resume"
-          accept=".md,.markdown,.txt,text/markdown,text/plain"
-          choose-label="导入"
-          choose-icon="pi pi-upload"
-          custom-upload
-          :disabled="saving || importing"
-          :choose-button-props="{ severity: 'secondary', text: true }"
-          @select="selectResume"
-        >
-          <template #filelabel><span hidden /></template>
-        </FileUpload>
-        <Button
-          label="使用模板"
-          severity="secondary"
-          text
-          :disabled="saving || importing"
-          @click="requestReplacement({ content: resumeTemplate, fileName: '' })"
-        />
-      </div>
-    </section>
+  <SettingsPage
+    class="resume-settings"
+    title="简历"
+    :dirty="dirty"
+    :saving="saving"
+    :locked="locked"
+    :disabled="importing"
+    :content-inert="importing"
+    :status="importing ? '读取中…' : ''"
+    :error="error"
+    editor
+    @save="saveResume"
+  >
+    <template #actions>
+      <FileUpload
+        :key="uploadKey"
+        mode="basic"
+        name="resume"
+        accept=".md,.markdown,.txt,text/markdown,text/plain"
+        choose-label="导入"
+        choose-icon="pi pi-upload"
+        custom-upload
+        :disabled="saving || importing"
+        :choose-button-props="{ severity: 'secondary', text: true }"
+        @select="selectResume"
+      >
+        <template #filelabel><span hidden /></template>
+      </FileUpload>
+      <Button
+        label="使用模板"
+        severity="secondary"
+        text
+        :disabled="saving || importing"
+        @click="requestReplacement({ content: resumeTemplate, fileName: '' })"
+      />
+    </template>
 
     <Editor
       v-model="conf.formData.resumeMarkdown.content"
@@ -146,42 +167,55 @@ async function saveResume() {
       </template>
     </Editor>
 
-    <footer class="prime-savebar">
-      <div aria-live="polite">
-        <Message v-if="error" severity="error" variant="simple">{{ error }}</Message>
-        <span v-else>{{ locked ? '任务运行中，暂停后保存' : importing ? '读取中…' : status }}</span>
-      </div>
-      <div class="settings-toolbar-actions">
-        <Button
-          v-if="previousResume"
-          label="撤销替换"
-          severity="secondary"
-          text
-          :disabled="saving || importing"
-          @click="undoReplacement"
-        />
-        <Button
-          label="保存"
-          icon="pi pi-save"
-          :loading="saving"
-          :disabled="!dirty || saving || importing || locked"
-          @click="saveResume"
-        />
-      </div>
-    </footer>
+    <template #secondary-actions>
+      <FileUpload
+        :key="profileUploadKey"
+        mode="basic"
+        name="profile"
+        accept=".json,application/json"
+        choose-label="导入个人资料"
+        custom-upload
+        :disabled="saving || importing"
+        :choose-button-props="{ severity: 'secondary', text: true }"
+        @select="selectProfile"
+      >
+        <template #filelabel><span hidden /></template>
+      </FileUpload>
+      <span v-if="conf.formData.candidateProfile.fileName">{{
+        conf.formData.candidateProfile.fileName
+      }}</span>
+      <Button
+        v-if="conf.formData.candidateProfile.content"
+        label="移除个人资料"
+        severity="secondary"
+        text
+        :disabled="saving || importing"
+        @click="conf.formData.candidateProfile = { content: '', fileName: '' }"
+      />
+      <Button
+        v-if="previousResume"
+        label="撤销替换"
+        severity="secondary"
+        text
+        :disabled="saving || importing"
+        @click="undoReplacement"
+      />
+    </template>
 
-    <Dialog
-      v-model:visible="confirmVisible"
-      modal
-      header="替换当前简历"
-      @hide="pendingResume = null"
-    >
-      <p>这会替换当前编辑内容，尚未保存的修改也会被替换。</p>
-      <p>替换后可在本页撤销；点击保存后才会更新已保存的简历。</p>
-      <template #footer>
-        <Button label="取消" severity="secondary" text @click="confirmVisible = false" />
-        <Button label="替换" @click="confirmReplacement" />
-      </template>
-    </Dialog>
-  </div>
+    <template #overlays>
+      <Dialog
+        v-model:visible="confirmVisible"
+        modal
+        header="替换当前简历"
+        @hide="pendingResume = null"
+      >
+        <p>这会替换当前编辑内容，尚未保存的修改也会被替换。</p>
+        <p>替换后可在本页撤销；点击保存后才会更新已保存的简历。</p>
+        <template #footer>
+          <Button label="取消" severity="secondary" text @click="confirmVisible = false" />
+          <Button label="替换" @click="confirmReplacement" />
+        </template>
+      </Dialog>
+    </template>
+  </SettingsPage>
 </template>

@@ -1,3 +1,4 @@
+import { matchingPrompt } from '@/services/jobMatching'
 import type { FormData } from '@/types/formData'
 
 // TODO: 移除info, 忘记当初为啥要维护这一坨了, 还是直接写组件里面好看
@@ -187,40 +188,13 @@ export const defaultFormData: FormData = {
   },
   aiFiltering: {
     enable: false,
-    prompt: [
-      {
-        role: 'system',
-        content: `比较候选人简历与岗位要求，判断是否值得投递。
-只返回一个JSON对象，不要输出Markdown或JSON之外的文字。必须且只能包含以下字段：
-{"decision":"REJECT|REVIEW|APPLY","reason":"总体判断理由","matchPoints":["有简历依据的匹配点"],"gaps":["缺口、风险或硬性冲突"],"uncertainties":["仅凭现有信息无法确定的事项"]}
-REJECT：明显不匹配、硬性要求不满足或不值得投递。
-REVIEW：有一定匹配度，但存在不确定项或明显缺口。
-APPLY：匹配度高且没有已知硬性冲突。
-reason 应简洁说明作出该决策的核心依据；matchPoints、gaps、uncertainties 必须是字符串数组，没有内容时返回空数组。不得把推测写成候选人的既有事实。`,
-      },
-      {
-        role: 'user',
-        content: `## 候选人简历
-{{ resumeMarkdown }}
-
-## 待处理的岗位信息
-  <岗位信息>
-  岗位名:{{ jobData.jobName }}   薪资: {{ jobData.salary }}
-  学历要求: {{ jobData.degreeName }}    工作经验要求: {{ jobData.experienceName }}
-  福利列表: {{ jobData.welfareList }}
-  技能要求: {{ jobData.skills }}
-  岗位标签:{{ jobData.jobLabels }}
-    <岗位描述>
-    {{ jobData.jobDescription }}
-    <岗位描述/>
-  </岗位信息>`,
-      },
-    ],
+    prompt: matchingPrompt,
   },
   resumeMarkdown: {
     content: '',
     fileName: '',
   },
+  candidateProfile: { content: '', fileName: '' },
   autoDelivery: {
     value: false,
   },

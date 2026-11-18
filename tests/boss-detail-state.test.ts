@@ -4,8 +4,10 @@ import test from 'node:test'
 import type { JobData } from '../src/composables/useHelper/type.ts'
 import {
   applyBossDetail,
+  bossAccessBlockReason,
   refreshBossListJob,
   waitForBossDetail,
+  waitForBossListChange,
 } from '../src/entrypoints/boss/detailState.ts'
 import type { BossZpDetailData } from '../src/entrypoints/boss/types.ts'
 import { bossListFixture } from './fixtures/boss-jobs.ts'
@@ -117,4 +119,105 @@ void test('a detail reader error also cleans up both timers', async (t) => {
   )
   assert.equal(clearIntervalMock.mock.callCount(), 1)
   assert.equal(clearTimeoutMock.mock.callCount(), 1)
+})
+
+void test('pagination waits through an empty loading state and returns when jobs actually change', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const previous = bossListFixture.slice()
+  let visible = previous
+  let reads = 0
+  const pending = waitForBossListChange(
+    () => {
+      reads++
+      return visible
+    },
+    previous,
+    () => false,
+  )
+  t.mock.timers.tick(5_000)
+  visible = []
+  t.mock.timers.tick(100)
+  visible = [previous[0]!, { ...previous[1]!, encryptJobId: 'new-job' }]
+  t.mock.timers.tick(100)
+  assert.equal(await pending, true)
+  const completedReads = reads
+  t.mock.timers.tick(60_000)
+  assert.equal(reads, completedReads)
+})
+
+void test('pagination timeout reports an error instead of treating the old list as final', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const pending = waitForBossListChange(
+    () => bossListFixture,
+    bossListFixture,
+    () => false,
+  )
+  const rejected = assert.rejects(pending, /下一页岗位加载超时/)
+  t.mock.timers.tick(30_000)
+  await rejected
+})
+
+void test('pagination can pause without leaving a polling timer', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  let stopped = false
+  let reads = 0
+  const pending = waitForBossListChange(
+    () => {
+      reads++
+      return bossListFixture
+    },
+    bossListFixture,
+    () => stopped,
+  )
+  stopped = true
+  t.mock.timers.tick(100)
+  assert.equal(await pending, false)
+  const pausedReads = reads
+  t.mock.timers.tick(60_000)
+  assert.equal(reads, pausedReads)
+})
+
+void test('visible verification and frequency notices produce actionable pause reasons', () => {
+  assert.match(bossAccessBlockReason('操作过于频繁，请稍后重试')!, /操作频繁/)
+  assert.match(bossAccessBlockReason('安全验证\n请完成下方验证后继续')!, /原站完成验证/)
+  assert.match(bossAccessBlockReason('请完成下方验证后继续')!, /人工验证/)
+  assert.equal(bossAccessBlockReason('安全验证工程师\n负责安全验证流程设计'), undefined)
+  assert.equal(bossAccessBlockReason('岗位列表\n正常加载'), undefined)
+})
+
+for (const stopped of [false, true]) {
+  void test(`detail wait releases timers promptly on ${stopped ? 'pause' : 'verification'}`, async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+    let block = false
+    let reads = 0
+    const pending = waitForBossDetail(
+      () => {
+        reads++
+        return undefined
+      },
+      bossListFixture[1],
+      {
+        isStopped: () => stopped && block,
+        readBlockReason: () => (!stopped && block ? '请在原站完成验证' : undefined),
+      },
+    )
+    const rejected = assert.rejects(pending, stopped ? /已暂停/ : /原站完成验证/)
+    block = true
+    t.mock.timers.tick(100)
+    await rejected
+    const last = reads
+    t.mock.timers.tick(120_000)
+    assert.equal(reads, last)
+  })
+}
+
+void test('page wait stops on verification instead of treating the unchanged list as completion', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
+  const pending = waitForBossListChange(
+    () => bossListFixture,
+    bossListFixture,
+    () => false,
+    () => 'BOSS 需要人工验证',
+  )
+  await assert.rejects(pending, /人工验证/)
 })

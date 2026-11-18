@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   collectionLabel,
+  collectionProgress,
   deliveryBlockReason,
   failedCollectionStages,
   safeStageMessage,
@@ -87,4 +88,34 @@ test('diagnostics exclude raw response bodies, credentials and request URLs', ()
     assert.doesNotMatch(safeStageMessage(message), /sensitive|private|example\.com/)
   assert.equal(safeStageMessage('缺少必填字段 Table ID'), '缺少必填字段 Table ID')
   assert.equal(safeStageMessage('x'.repeat(600)).length, 300)
+})
+
+test('collection progress only counts fully completed jobs, including deliberately skipped stages', () => {
+  assert.deepEqual(collectionProgress([]), { completed: 0, total: 0, value: 0 })
+  const skipped = completed()
+  skipped.stages!.analysis = { status: 'skipped', attempts: 0 }
+  skipped.stages!.storage = { status: 'skipped', attempts: 0 }
+  const failed = completed()
+  failed.stages!.storage = { status: 'failed', attempts: 1 }
+  assert.deepEqual(collectionProgress([completed('REJECT'), skipped, failed, {}]), {
+    completed: 2,
+    total: 4,
+    value: 50,
+  })
+})
+
+test('discovering another page updates the denominator instead of fabricating complete progress', () => {
+  assert.equal(collectionProgress([completed()]).value, 100)
+  assert.deepEqual(collectionProgress([completed(), {}]), { completed: 1, total: 2, value: 50 })
+})
+
+void test('remote existing rows are shown as skipped rather than fetched or newly stored', () => {
+  const state: CollectionViewState = { skippedExisting: true, feishuRecordId: 'record', stages: {} }
+  for (const key of ['detail', 'analysis', 'storage'] as const)
+    state.stages![key] = { status: 'skipped', attempts: 0 }
+  assert.equal(collectionLabel(state), '飞书已有，已跳过')
+  assert.equal(stageView('detail', state).label, '已跳过')
+  assert.equal(stageView('analysis', state).label, '已跳过')
+  assert.equal(stageView('storage', state).label, '飞书已有')
+  assert.equal(collectionProgress([state]).value, 100)
 })

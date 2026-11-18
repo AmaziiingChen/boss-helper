@@ -42,9 +42,10 @@ export async function sendPublishReq(
     const res = await fetch(url, {
       method: 'POST',
       headers: { Zp_token: token },
+      signal: AbortSignal.timeout(15000),
     }).then((r) => r.json())
 
-    res.code !== 0 && logger.error(`投递失败`, res)
+    res.code !== 0 && logger.error('沟通请求失败', { code: res.code })
 
     if (res.code === 1) {
       const content = String(

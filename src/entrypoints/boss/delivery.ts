@@ -1,10 +1,17 @@
 import { useDeliveryWorkflow } from '@/composables/useApplying'
 import { TaskRegistry, taskResult } from '@/composables/useApplying/handles'
 import { defineTaskHandler, defineTaskWorkflow } from '@/composables/useApplying/type'
+import type { CollectionInputKeys } from '@/services/collectionInputs'
 import { runStage } from '@/services/collectionStages'
 import type { CollectionState } from '@/services/collectionStages'
-import { upsertJobToFeishu, validateFeishuConfig } from '@/services/feishu'
-import type { FeishuJobSnapshot } from '@/services/feishu'
+import {
+  readJobFromFeishu,
+  upsertJobToFeishu,
+  validateFeishuConfig,
+  validateFeishuSchema,
+} from '@/services/feishu'
+import type { FeishuJobRecord, FeishuJobSnapshot } from '@/services/feishu'
+import type { GreetingSendRecord } from '@/services/greetingSend'
 import { shouldDeliverJob } from '@/services/jobMatching'
 import type { JobMatchResult } from '@/services/jobMatching'
 
@@ -18,9 +25,13 @@ export type BoosJobData = {
 }
 
 export type BossWorkflowState = CollectionState & {
+  inputKeys?: CollectionInputKeys
+  skippedExisting?: boolean
+  greetingSend?: GreetingSendRecord
   aiMatchResult?: JobMatchResult
   delivered?: boolean
   feishuRecordId?: string
+  feishuRecord?: FeishuJobRecord
 }
 
 function buildFeishuJobSnapshot(data: BoosJobData): FeishuJobSnapshot {
@@ -51,23 +62,87 @@ function buildFeishuJobSnapshot(data: BoosJobData): FeishuJobSnapshot {
 
 const tasks = new TaskRegistry<BossHelperCtx, BoosJobData, BossWorkflowState>()
 
+/** Lookup uses the list ID, so an existing row never needs a BOSS detail request. */
+const checkExisting = (skipExisting: boolean) =>
+  defineTaskHandler<BossHelperCtx, BoosJobData, BossWorkflowState>(
+    '飞书查重',
+    (ctx) => {
+      const config = { ...ctx.helper.conf.formData.feishu }
+      return async (_, data) => {
+        if (data.state.skippedExisting) {
+          delete data.state.skippedExisting
+          for (const key of ['detail', 'analysis', 'storage'] as const)
+            if (data.state.stages?.[key]?.status === 'skipped') delete data.state.stages[key]
+        }
+        // Completed local details can be reused when inputs change or storage is retried.
+        if (!skipExisting || !config.enable || data.state.stages?.detail?.status === 'succeeded')
+          return
+        try {
+          const record = await readJobFromFeishu(data.rawData.jobitem.encryptJobId, config)
+          if (ctx.helper.workflow?.status.value === 'stop') return
+          if (!record) return
+          data.state.feishuRecord = record
+          data.state.feishuRecordId = record.recordId
+          data.state.skippedExisting = true
+          delete data.state.aiMatchResult
+          data.state.stages ??= {}
+          for (const key of ['detail', 'analysis', 'storage'] as const)
+            data.state.stages[key] = {
+              status: 'skipped',
+              attempts: data.state.stages[key]?.attempts ?? 0,
+              message: '飞书已有，跳过采集',
+              finishedAt: Date.now(),
+            }
+          return {
+            ...taskResult.skip('飞书已有，跳过采集'),
+            msg: '飞书已有，已跳过',
+            isCache: true,
+          }
+        } catch (error) {
+          ctx.helper.workflow?.stop()
+          if (ctx.helper.workflow)
+            ctx.helper.workflow.errorMessage.value = '飞书查重失败，已暂停，请检查连接后继续'
+          throw error
+        }
+      }
+    },
+    { state: 'running', stateMsg: '查询飞书已有岗位' },
+  )()
+
 const collectDetail = defineTaskHandler<BossHelperCtx, BoosJobData, BossWorkflowState>(
   '岗位详情获取',
-  () => async (ctx, data) => {
-    const completed = await runStage(
-      data.state,
-      'detail',
-      async () => {
-        await ctx.helper.onJobCardClick(data.jobData.key)
-        if (!data.jobData.jobDescription.trim())
-          throw new Error('岗位详情缺少完整 JD，请重试详情获取')
-      },
-      { isStopped: () => ctx.helper.workflow?.status.value === 'stop' },
-    )
-    if (!completed && ctx.helper.workflow?.status.value !== 'stop')
-      return taskResult.error('详情阶段仍在执行或结果待核实')
+  () => {
+    let detailReads = 0
+    return async (ctx, data) => {
+      if (data.state.stages?.detail?.status !== 'succeeded' && detailReads >= 20) {
+        const message = '本轮已获取 20 个岗位详情，已暂停；请稍后点击继续采集'
+        ctx.helper.workflow?.stop()
+        if (ctx.helper.workflow) ctx.helper.workflow.errorMessage.value = message
+        return { status: 'wait', msg: message }
+      }
+      try {
+        const completed = await runStage(
+          data.state,
+          'detail',
+          async () => {
+            detailReads++
+            await ctx.helper.onJobCardClick(data.jobData.key)
+            if (!data.jobData.jobDescription.trim())
+              throw new Error('岗位详情缺少完整 JD，请重试详情获取')
+          },
+          { isStopped: () => ctx.helper.workflow?.status.value === 'stop' },
+        )
+        if (!completed && ctx.helper.workflow?.status.value !== 'stop')
+          return taskResult.error('详情阶段仍在执行或结果待核实')
+      } catch (error) {
+        ctx.helper.workflow?.stop()
+        if (ctx.helper.workflow)
+          ctx.helper.workflow.errorMessage.value = `详情读取已暂停：${error instanceof Error ? error.message : String(error)}`
+        throw error
+      }
+    }
   },
-  { state: 'request', stateMsg: '获取岗位详情' },
+  { state: 'request', stateMsg: '获取岗位详情', deps: ['飞书查重'] },
 )
 
 const collectAnalysis = defineTaskHandler<BossHelperCtx, BoosJobData, BossWorkflowState>(
@@ -76,6 +151,7 @@ const collectAnalysis = defineTaskHandler<BossHelperCtx, BoosJobData, BossWorkfl
     const initialized = await tasks.aiFiltering().task(ctx)
     const analyze = typeof initialized === 'function' ? initialized : initialized?.fn
     return async (ctx, data) => {
+      if (!analyze) delete data.state.aiMatchResult
       const completed = await runStage(
         data.state,
         'analysis',
@@ -96,9 +172,12 @@ const collectAnalysis = defineTaskHandler<BossHelperCtx, BoosJobData, BossWorkfl
 
 const collectStorage = defineTaskHandler<BossHelperCtx, BoosJobData, BossWorkflowState>(
   '岗位入库',
-  (ctx) => {
-    const config = ctx.helper.conf.formData.feishu
-    if (config.enable) validateFeishuConfig(config)
+  async (ctx) => {
+    const config = { ...ctx.helper.conf.formData.feishu }
+    if (config.enable) {
+      validateFeishuConfig(config)
+      await validateFeishuSchema(config)
+    }
     return async (ctx, data) => {
       const completed = await runStage(
         data.state,
@@ -107,11 +186,16 @@ const collectStorage = defineTaskHandler<BossHelperCtx, BoosJobData, BossWorkflo
           const result = await upsertJobToFeishu(
             data.jobData,
             data.rawData.jobitem.encryptJobId,
-            data.state.aiMatchResult,
+            ctx.helper.conf.formData.aiFiltering.enable ? data.state.aiMatchResult : undefined,
             config,
             buildFeishuJobSnapshot(data.rawData),
           )
           data.state.feishuRecordId = result.recordId
+          data.state.feishuRecord = {
+            recordId: result.recordId,
+            applicationProgress: result.applicationProgress,
+            checkedAt: result.checkedAt,
+          }
         },
         { enabled: config.enable, isStopped: () => ctx.helper.workflow?.status.value === 'stop' },
       )
@@ -124,11 +208,15 @@ const collectStorage = defineTaskHandler<BossHelperCtx, BoosJobData, BossWorkflo
   { state: 'running', stateMsg: '同步飞书', deps: ['AI分析'] },
 )
 
-/** Every listed job reaches detail/analysis/storage, including REJECT decisions. */
-export const bossWorkflow = (ctx: BossHelperCtx) =>
-  useDeliveryWorkflow([collectDetail(), collectAnalysis(), collectStorage()], ctx, {
-    mode: 'collection',
-  })
+/** Batch collection skips remote existing rows; explicit per-job updates may bypass it. */
+export const bossWorkflow = (ctx: BossHelperCtx, skipExisting = true) =>
+  useDeliveryWorkflow(
+    [checkExisting(skipExisting), collectDetail(), collectAnalysis(), collectStorage()],
+    ctx,
+    {
+      mode: 'collection',
+    },
+  )
 
 /** Invoked for one explicitly confirmed job only; never part of collection. */
 export const bossDeliveryWorkflow = defineTaskWorkflow<
@@ -218,6 +306,17 @@ export const bossDeliveryWorkflow = defineTaskWorkflow<
       : false
 
     if (shouldDeliver) {
+      const config = ctx.helper.conf.formData.feishu
+      if (config.enable) {
+        // The remote progress is the baseline. Refresh even if collection was cached.
+        const record = await readJobFromFeishu(data.rawData.jobitem.encryptJobId, config)
+        data.state.feishuRecord = record
+        if (!record) return taskResult.error('飞书未找到该岗位，请先完成入库；未发送')
+        data.state.feishuRecordId = record.recordId
+        if (record.applicationProgress !== '待处理') {
+          return taskResult.skip('飞书求职进度不是“待处理”，请先在飞书核实；未发送')
+        }
+      }
       try {
         await runStage(data.state, 'delivery', async () => {
           // Do not automatically retry a POST whose response may have been lost.

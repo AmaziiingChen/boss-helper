@@ -7,7 +7,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
 import LLMForm from '@/components/AI/LLMForm.vue'
 import LLMPromptEdit from '@/components/AI/LLMPromptEdit.vue'
-import { formInfoData } from '@/composables/conf'
+import SettingsPage from '@/components/SettingsPage.vue'
 import { useSettingsDraft } from '@/composables/conf/settingsDraft'
 import { useHelper } from '@/composables/useHelper'
 import { confModelKey, useModel } from '@/composables/useModel'
@@ -134,59 +134,46 @@ async function testModel() {
 </script>
 
 <template>
-  <div class="prime-settings-stack ai-settings">
-    <div class="settings-page-body" :inert="pageSaving || !initialized">
-      <section class="settings-toolbar">
-        <h2>AI 模型</h2>
-        <div class="settings-toolbar-actions">
-          <Button
-            label="测试连接"
-            severity="secondary"
-            outlined
-            :loading="testing"
-            :disabled="!initialized"
-            @click="testModel"
+  <SettingsPage
+    title="AI"
+    :dirty="pageDirty"
+    :saving="pageSaving"
+    :locked="helper.workflowRunning.value"
+    :disabled="!initialized"
+    :content-inert="!initialized"
+    :error="saveError"
+    @save="saveModel"
+  >
+    <template #actions>
+      <Button
+        label="测试连接"
+        severity="secondary"
+        outlined
+        :loading="testing"
+        :disabled="!initialized"
+        @click="testModel"
+      />
+    </template>
+
+    <LLMForm v-model="modelForm" />
+    <Message v-if="testResult" :severity="testResult.severity" aria-live="polite">{{
+      testResult.text
+    }}</Message>
+
+    <section class="prime-settings-section">
+      <div class="prime-toggle-row">
+        <div>
+          <strong>AI 自动分析</strong>
+        </div>
+        <div class="prime-toggle-actions">
+          <ToggleSwitch
+            v-model="conf.formData.aiFiltering.enable"
+            :disabled="helper.workflow?.status.value === 'running'"
+            aria-label="AI 自动分析"
           />
         </div>
-      </section>
-
-      <LLMForm v-model="modelForm" />
-      <Message v-if="testResult" :severity="testResult.severity" aria-live="polite">{{
-        testResult.text
-      }}</Message>
-      <Message v-if="saveError" severity="error" aria-live="polite">{{ saveError }}</Message>
-
-      <section class="prime-settings-section">
-        <div class="prime-toggle-row">
-          <div>
-            <strong>{{ formInfoData.aiFiltering.label }}</strong>
-          </div>
-          <div class="prime-toggle-actions">
-            <ToggleSwitch
-              v-model="conf.formData.aiFiltering.enable"
-              :disabled="helper.workflow?.status.value === 'running'"
-              aria-label="AI 简历匹配"
-            />
-          </div>
-        </div>
-        <LLMPromptEdit v-if="conf.formData.aiFiltering.enable" data="aiFiltering" />
-      </section>
-    </div>
-    <div class="prime-savebar">
-      <span role="status">{{
-        helper.workflowRunning.value
-          ? '任务运行中，暂停后保存'
-          : pageDirty
-            ? '有未保存的修改'
-            : '无未保存修改'
-      }}</span>
-      <Button
-        label="保存"
-        icon="pi pi-save"
-        :loading="pageSaving"
-        :disabled="!initialized || !pageDirty || helper.workflowRunning.value"
-        @click="saveModel"
-      />
-    </div>
-  </div>
+      </div>
+      <LLMPromptEdit v-if="conf.formData.aiFiltering.enable" data="aiFiltering" />
+    </section>
+  </SettingsPage>
 </template>

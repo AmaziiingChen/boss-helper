@@ -9,7 +9,7 @@ import { renderTemplate } from '../../utils/ai'
 import type { WorkflowData } from '../useApplying/type'
 import type { HelperContext } from '../useHelper'
 
-const roles = ['filtering'] as const
+const roles = ['filtering', 'greeting'] as const
 type MessageRole = (typeof roles)[number]
 
 export class ChatModel {
@@ -71,18 +71,8 @@ export class ChatModel {
     return agent.stream({
       timeout: 60000,
       messages,
-      onStart: (message) => {
-        logger.debug('AI request started', message)
-      },
-      onStepStart: (message) => {
-        logger.debug('AI request step started', message)
-      },
-      onStepEnd: (message) => {
-        logger.debug('AI request step finished', message)
-      },
-      onEnd: (message) => {
-        logger.debug('AI request finished', message)
-      },
+      onStart: () => logger.debug('AI request started', { agentName }),
+      onEnd: () => logger.debug('AI request finished', { agentName }),
     })
   }
 }
